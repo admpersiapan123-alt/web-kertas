@@ -43,6 +43,10 @@
             if (preg_match('/^([A-Z]+)(\d+)/', $kode, $matches)) {
                 $huruf = $matches[1];
                 if ($huruf == 'W') $huruf = 'WK';
+                
+                // --- ATURAN BARU: T jadikan otomatis K ---
+                if ($huruf == 'T') $huruf = 'K';
+                
                 return $huruf . $matches[2];
             }
             
@@ -62,6 +66,10 @@
                 if ($angka == '160') { $angka_db = ($huruf == 'W') ? '140' : '150'; }
                 
                 $prefix = ($huruf == 'W') ? 'WK' : $huruf;
+                
+                // --- ATURAN BARU: T jadikan otomatis K ---
+                if ($prefix == 'T') $prefix = 'K';
+                
                 return $prefix . $angka_db;
             }
             return $kode;

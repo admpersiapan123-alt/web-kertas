@@ -9,20 +9,13 @@ use Illuminate\Support\Facades\DB;
 
 class ImportStockController extends Controller
 {
-    /**
-     * Menampilkan halaman upload CSV
-     */
     public function showImportForm()
     {
         return view('stock.import'); 
     }
 
-    /**
-     * Memproses file CSV dan memasukkannya ke database
-     */
     public function importStockCSV(Request $request)
     {
-        // 1. Validasi file yang diupload wajib format CSV/TXT
         $request->validate([
             'file_csv' => 'required|file|mimes:csv,txt'
         ]);
@@ -30,61 +23,72 @@ class ImportStockController extends Controller
         $file = $request->file('file_csv')->getRealPath();
         $handle = fopen($file, "r");
 
-        // Gunakan Transaction agar kalau di tengah jalan error, database tidak setengah-setengah masuknya
         DB::beginTransaction();
         try {
             $currentJenis = '';
             $currentGsm = '';
             $currentLebar = '';
 
-            // 2. Looping pembacaan tiap baris CSV dengan pemisah titik koma (;)
             while (($data = fgetcsv($handle, 2000, ';')) !== FALSE) {
                 
-                // Lewati baris kosong di awal (seperti header FastReport)
                 if (empty(trim($data[0]))) {
                     continue;
                 }
 
-                // 3. DETEKSI BARIS KELOMPOK (Jenis, GSM, Lebar)
-                // Ciri: Index 0 terisi kode pendek (BAG, BEP), Index 1 kosong, Index 3 & 4 ada isi
+                // 3. DETEKSI BARIS KELOMPOK
                 if (empty($data[1]) && !empty($data[3]) && !empty($data[4]) && strlen(trim($data[0])) <= 5) {
                     $currentJenis = trim($data[0]);
                     $currentGsm   = trim($data[3]);
                     $currentLebar = trim($data[4]);
-                    continue; // Skip eksekusi ke bawah, langsung lanjut baca baris berikutnya
+                    continue;
                 }
 
                 // 4. DETEKSI BARIS DATA ROLL
-                // Ciri: Index 0 terisi No Roll yang karakternya panjang (> 5)
                 if (strlen(trim($data[0])) > 5) {
                     
                     $no_roll      = trim($data[0]);
                     $no_roll_asli = trim($data[4] ?? '');
                     $sisa_kotor   = trim($data[5] ?? '0');
                     $no_po        = trim($data[6] ?? '');
-                    
-                    // Index 14 dan 15 menyesuaikan tumpukan titik koma dari hasil export sistem
                     $wilayah      = trim($data[14] ?? '');
                     $lokasi       = trim($data[15] ?? '');
 
-                    // --- PERBAIKAN LOGIKA PARSING ANGKA DI SINI ---
+                    // --- PERBAIKAN LOGIKA PARSING ANGKA (SMART DETECT WIN 7 & WIN 10) ---
                     
                     $sisa_bersih = trim($sisa_kotor);
 
-                    // 1. HAPUS titik (.) karena di CSV lokal, titik adalah pemisah ribuan ("1.367" menjadi "1367")
-                    $sisa_bersih = str_replace('.', '', $sisa_bersih);
+                    // Skenario 1: Ada koma DAN titik sekaligus (contoh: 1.367,50 atau 1,367.50)
+                    if (strpos($sisa_bersih, ',') !== false && strpos($sisa_bersih, '.') !== false) {
+                        // Cek posisi mana yang paling belakang, itu pasti desimalnya
+                        if (strrpos($sisa_bersih, ',') > strrpos($sisa_bersih, '.')) {
+                            // Format Indo (1.367,50) -> Buang titik, ubah koma jadi titik
+                            $sisa_bersih = str_replace('.', '', $sisa_bersih); 
+                            $sisa_bersih = str_replace(',', '.', $sisa_bersih);
+                        } else {
+                            // Format US (1,367.50) -> Buang koma saja
+                            $sisa_bersih = str_replace(',', '', $sisa_bersih);
+                        }
+                    } 
+                    // Skenario 2: Hanya ada SALAH SATU simbol (Titik SAJA atau Koma SAJA)
+                    else {
+                        // Karena berat fisik kertas biasanya bulat atau pakai 1-2 angka desimal...
+                        // Jika tepat ada 3 angka di belakang simbol, 99% itu adalah pemisah ribuan (1.367 atau 1,367)
+                        if (preg_match('/[.,]\d{3}$/', $sisa_bersih)) {
+                            $sisa_bersih = str_replace(['.', ','], '', $sisa_bersih);
+                        } else {
+                            // Jika bukan 3 angka (misal 1367.5 atau 1367,5), maka itu adalah desimal
+                            $sisa_bersih = str_replace(',', '.', $sisa_bersih);
+                        }
+                    }
 
-                    // 2. UBAH koma (,) menjadi titik (.) karena PHP/SQL butuh titik untuk desimal ("1367,50" menjadi "1367.50")
-                    $sisa_bersih = str_replace(',', '.', $sisa_bersih);
-
-                    // 3. Pastikan hanya angka dan titik desimal yang tersisa
+                    // Pastikan hanya angka dan titik desimal yang tersisa untuk masuk ke database
                     $sisa_bersih = preg_replace('/[^0-9.]/', '', $sisa_bersih);
 
-                    // 4. Konversi ke Float dengan aman
+                    // Konversi akhir ke float
                     $sisa_final  = (float) ($sisa_bersih ?: 0);
 
-                    // 5. INSERT ATAU UPDATE KE DATABASE
-                    // Jika no_roll sudah ada, update isinya. Jika belum ada, buat baru.
+                    // --- END PERBAIKAN ---
+
                     StockKertas::updateOrCreate(
                         ['no_roll' => $no_roll], 
                         [
@@ -102,14 +106,12 @@ class ImportStockController extends Controller
                 }
             }
 
-            // Tutup file dan simpan semua perubahan ke database
             fclose($handle);
             DB::commit();
             
             return back()->with('success', 'Database Stok Kertas berhasil disinkronisasi sepenuhnya!');
 
         } catch (\Exception $e) {
-            // Batalkan semua perubahan jika ada yang error
             DB::rollBack();
             if (isset($handle) && is_resource($handle)) {
                 fclose($handle);

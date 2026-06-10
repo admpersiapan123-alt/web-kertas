@@ -54,6 +54,8 @@ Route::prefix('hitung-spk')->group(function () {
 
     // Taruh di dalam kelompok Route hitung-spk Anda
     Route::post('/sapujagat/re-run/{id}', [SpkController::class, 'reRunSapuJagat']);
+
+    Route::post('sapujagat/scan-ai', [\App\Http\Controllers\SpkController::class, 'scanFotoAi']);
 });
 
 // 4. DATA MASTER & SCAN UMUM

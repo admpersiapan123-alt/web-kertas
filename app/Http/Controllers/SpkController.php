@@ -250,7 +250,7 @@ class SpkController extends Controller
     // =========================================================================
     // 2. KAMUS PENERJEMAH DINAMIS (MEMISAHKAN KRAFT, BKRAFT, TESTLINER, MEDIUM)
     // =========================================================================
-    private function terjemahkanKode($kode)
+    public function terjemahkanKode($kode)
     {
         if (!$kode || $kode == '-') return '';
         
@@ -259,7 +259,6 @@ class SpkController extends Controller
 
         // ---------------------------------------------------------------------
         // POLA 1: FORMAT DATABASE / FORKLIFT (Huruf di DEPAN, Angka di BELAKANG)
-        // Contoh: B150, T125, K150, W140, WK140, M125
         // ---------------------------------------------------------------------
         if (preg_match('/^([A-Z]+)(\d+)/', $kode, $matches)) {
             $huruf_depan = $matches[1];
@@ -269,21 +268,25 @@ class SpkController extends Controller
             if ($huruf_depan == 'W') {
                 $huruf_depan = 'WK';
             }
+            
+            // --- ATURAN BARU: T jadikan otomatis K ---
+            if ($huruf_depan == 'T') {
+                $huruf_depan = 'K';
+            }
 
-            return $huruf_depan . $angka_belakang; // Hasil: B150, T125, K150, WK140, M125
+            return $huruf_depan . $angka_belakang; 
         }
 
         // ---------------------------------------------------------------------
         // POLA 2: FORMAT MONITOR MESIN (Angka di DEPAN, Huruf di BELAKANG)
-        // Contoh: 160BB, 127TF, 160KS, 160WS, 150SD
         // ---------------------------------------------------------------------
         if (preg_match('/^(\d+)([A-Z]+)/', $kode, $matches)) {
             $angka_depan = $matches[1];
-            $huruf_belakang = substr($matches[2], 0, 1); // Ambil 1 huruf pertama di belakang angka (BB -> B, TF -> T)
+            $huruf_belakang = substr($matches[2], 0, 1); 
             
             // Validasi rumpun huruf standar pabrik Anda
             if (!in_array($huruf_belakang, ['K', 'B', 'T', 'M', 'W'])) {
-                $huruf_belakang = 'M'; // Jika huruf S, D, Y dll (Monitor), otomatis masuk ke Medium (M)
+                $huruf_belakang = 'M'; 
             }
 
             // Rumus konversi angka monitor ke angka database asli
@@ -294,8 +297,7 @@ class SpkController extends Controller
             if ($angka_depan == '127') $angka_db = '125';
             if ($angka_depan == '137') $angka_db = '135';
             
-            // Aturan Khusus angka 160: 
-            // Jika kertas White Kraft (W) maka jadi 140. Jika Kraft (K), BKraft (B), atau Testliner (T) maka jadi 150.
+            // Aturan Khusus angka 160
             if ($angka_depan == '160') {
                 $angka_db = ($huruf_belakang == 'W') ? '140' : '150';
             }
@@ -305,8 +307,13 @@ class SpkController extends Controller
             if ($huruf_belakang == 'W') {
                 $prefix_db = 'WK';
             }
+            
+            // --- ATURAN BARU: T jadikan otomatis K ---
+            if ($prefix_db == 'T') {
+                $prefix_db = 'K';
+            }
 
-            return $prefix_db . $angka_db; // Hasil otomatis: B150, T125, K150, WK140, M125
+            return $prefix_db . $angka_db; 
         }
         
         return $kode; 
@@ -591,5 +598,74 @@ class SpkController extends Controller
         ]);
 
         return redirect('/hitung-spk/riwayat')->with('success', '🔄 Selesai! Data monitor berhasil direvisi dan sistem telah menghitung ulang porsi Kg-nya!');
+    }
+
+    // ========================================================
+    // 5. FITUR AI: EKSTRAK FOTO MONITOR MENGGUNAKAN GROQ API
+    // ========================================================
+    public function scanFotoAi(Request $request)
+    {
+        $request->validate([
+            'foto_spek' => 'required|image|max:4096', // Foto 1: Spesifikasi Kertas
+            'foto_meter' => 'required|image|max:4096', // Foto 2: Meteran Run
+        ]);
+
+        try {
+            // Ubah gambar fisik menjadi string Base64
+            $imgSpek = base64_encode(file_get_contents($request->file('foto_spek')->path()));
+            $imgMeter = base64_encode(file_get_contents($request->file('foto_meter')->path()));
+
+            // Prompt super spesifik (Prompt Engineering)
+            // Prompt super spesifik (Prompt Engineering tingkat Dewa)
+            $prompt = "Kamu adalah sistem ekstraksi OCR untuk monitor mesin corrugator pabrik kardus. 
+            Aku memberikan 2 foto dari layar monitor. 
+            Foto 1 berisi spesifikasi: Seq, ID SPK, Customer, Width (Lebar), dan deretan kertas (DB, BM, BL, CM, CL). 
+            Foto 2 berisi target jalan: Seq dan Length (Meter).
+            
+            ATURAN WAJIB (HARUS DIIKUTI 100%):
+            1. GABUNGKAN data dari kedua foto berdasarkan nomor 'Seq' yang sama.
+            2. FORMAT SPK: Gabungkan ID SPK dan Customer dengan separator garis miring ' / '. (Contoh: jika ID '12345' dan Customer 'MERCU', maka tulis '12345 / MERCU'). Masukkan ke key 'spk'.
+            3. PEMISAHAN KERTAS (SANGAT PENTING): JANGAN PERNAH menggabungkan semua kertas ke dalam satu key 'db'! Pisahkan kertas tersebut sesuai urutannya ke key 'db', 'bm', 'bl', 'cm', 'cl'. 
+               - Jika di layar tertulis berjejer '160WS 150SD 160KS', maka pecah menjadi: db: '160WS', bm: '150SD', bl: '160KS', cm: '', cl: ''.
+               - Kosongkan string (\"\") jika tidak ada kertas di posisi tersebut (misal untuk Single Wall, cm dan cl pasti kosong).
+            4. KEMBALIKAN HANYA JSON murni dengan key 'data' berupa array of objects. Dilarang keras memberikan teks pengantar atau penutup Markdown (seperti ```json).
+            
+            Contoh Format Output Yang Benar:
+            {
+              \"data\": [
+                {\"seq\": \"10\", \"spk\": \"12345 / KARTA\", \"lebar\": \"1650\", \"meter\": \"1500\", \"db\": \"160WS\", \"bm\": \"150SD\", \"bl\": \"160KS\", \"cm\": \"\", \"cl\": \"\"}
+              ]
+            }";
+
+            // Tembak ke Groq API
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'Authorization' => 'Bearer ' . env('GROQ_API_KEY'),
+                'Content-Type' => 'application/json',
+            ])->timeout(30)->post('https://api.groq.com/openai/v1/chat/completions', [
+                'model' => 'meta-llama/llama-4-scout-17b-16e-instruct', // Ganti ke llama-3.2-90b-vision-preview jika model ini belum support image di Groq
+                'messages' => [
+                    [
+                        'role' => 'user',
+                        'content' => [
+                            ['type' => 'text', 'text' => $prompt],
+                            ['type' => 'image_url', 'image_url' => ['url' => "data:image/jpeg;base64,{$imgSpek}"]],
+                            ['type' => 'image_url', 'image_url' => ['url' => "data:image/jpeg;base64,{$imgMeter}"]]
+                        ]
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'], // Paksa AI hanya membalas JSON
+                'temperature' => 0.1, // Suhu sangat rendah agar tidak halusinasi
+            ]);
+
+            if ($response->successful()) {
+                $aiResult = json_decode($response->json()['choices'][0]['message']['content'], true);
+                return response()->json(['success' => true, 'data' => $aiResult['data'] ?? []]);
+            }
+
+            return response()->json(['success' => false, 'message' => 'API Error: ' . $response->body()]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Server Error: ' . $e->getMessage()]);
+        }
     }
 }
