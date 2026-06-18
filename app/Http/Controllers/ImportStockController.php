@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\StockKertas;
-use App\Models\ShiftRoll;
 use Illuminate\Support\Facades\DB;
 
 class ImportStockController extends Controller
@@ -21,6 +20,14 @@ class ImportStockController extends Controller
         ]);
 
         $file = $request->file('file_csv')->getRealPath();
+        
+        // 1. AUTO-DETECT DELIMITER (Koma atau Titik Koma)
+        $firstLine = fgets(fopen($file, 'r'));
+        $delimiter = strpos($firstLine, ';') !== false ? ';' : ',';
+        
+        // 2. AUTO-DETECT VERSI FILE (Apakah Versi Bersih atau FastReport)
+        $isCleanVersion = str_contains(strtolower($firstLine), 'noroll') && str_contains(strtolower($firstLine), 'nopo');
+
         $handle = fopen($file, "r");
 
         DB::beginTransaction();
@@ -29,72 +36,92 @@ class ImportStockController extends Controller
             $currentGsm = '';
             $currentLebar = '';
 
-            while (($data = fgetcsv($handle, 2000, ';')) !== FALSE) {
+            // Lewati baris pertama jika itu versi bersih
+            if ($isCleanVersion) {
+                fgetcsv($handle, 2000, $delimiter);
+            }
+
+            while (($data = fgetcsv($handle, 2000, $delimiter)) !== FALSE) {
                 
                 if (empty(trim($data[0]))) {
                     continue;
                 }
 
-                // 3. DETEKSI BARIS KELOMPOK
-                if (empty($data[1]) && !empty($data[3]) && !empty($data[4]) && strlen(trim($data[0])) <= 5) {
-                    $currentJenis = trim($data[0]);
-                    $currentGsm   = trim($data[3]);
-                    $currentLebar = trim($data[4]);
-                    continue;
-                }
-
-                // 4. DETEKSI BARIS DATA ROLL
-                if (strlen(trim($data[0])) > 5) {
-                    
-                    $no_roll      = trim($data[0]);
-                    $no_roll_asli = trim($data[4] ?? '');
-                    $sisa_kotor   = trim($data[5] ?? '0');
-                    $no_po        = trim($data[6] ?? '');
-                    $wilayah      = trim($data[14] ?? '');
-                    $lokasi       = trim($data[15] ?? '');
-
-                    // --- PERBAIKAN LOGIKA PARSING ANGKA (SMART DETECT WIN 7 & WIN 10) ---
-                    
-                    $sisa_bersih = trim($sisa_kotor);
-
-                    // Skenario 1: Ada koma DAN titik sekaligus (contoh: 1.367,50 atau 1,367.50)
-                    if (strpos($sisa_bersih, ',') !== false && strpos($sisa_bersih, '.') !== false) {
-                        // Cek posisi mana yang paling belakang, itu pasti desimalnya
-                        if (strrpos($sisa_bersih, ',') > strrpos($sisa_bersih, '.')) {
-                            // Format Indo (1.367,50) -> Buang titik, ubah koma jadi titik
-                            $sisa_bersih = str_replace('.', '', $sisa_bersih); 
-                            $sisa_bersih = str_replace(',', '.', $sisa_bersih);
-                        } else {
-                            // Format US (1,367.50) -> Buang koma saja
-                            $sisa_bersih = str_replace(',', '', $sisa_bersih);
-                        }
-                    } 
-                    // Skenario 2: Hanya ada SALAH SATU simbol (Titik SAJA atau Koma SAJA)
-                    else {
-                        // Karena berat fisik kertas biasanya bulat atau pakai 1-2 angka desimal...
-                        // Jika tepat ada 3 angka di belakang simbol, 99% itu adalah pemisah ribuan (1.367 atau 1,367)
-                        if (preg_match('/[.,]\d{3}$/', $sisa_bersih)) {
-                            $sisa_bersih = str_replace(['.', ','], '', $sisa_bersih);
-                        } else {
-                            // Jika bukan 3 angka (misal 1367.5 atau 1367,5), maka itu adalah desimal
-                            $sisa_bersih = str_replace(',', '.', $sisa_bersih);
-                        }
+                // ==========================================
+                // JIKA MENGGUNAKAN CSV VERSI LAMA (FASTREPORT)
+                // ==========================================
+                if (!$isCleanVersion) {
+                    if (empty($data[1]) && !empty($data[3]) && !empty($data[4]) && strlen(trim($data[0])) <= 5) {
+                        $currentJenis = trim($data[0]);
+                        $currentGsm   = trim($data[3]);
+                        $currentLebar = trim($data[4]);
+                        continue;
                     }
 
-                    // Pastikan hanya angka dan titik desimal yang tersisa untuk masuk ke database
-                    $sisa_bersih = preg_replace('/[^0-9.]/', '', $sisa_bersih);
+                    if (strlen(trim($data[0])) > 5) {
+                        $no_roll      = trim($data[0]);
+                        $no_roll_asli = trim($data[4] ?? '');
+                        $sisa_kotor   = trim($data[5] ?? '0');
+                        $no_po        = trim($data[6] ?? '');
+                        $wilayah      = trim($data[14] ?? '');
+                        $lokasi       = trim($data[15] ?? '');
+                    } else {
+                        continue;
+                    }
+                } 
+                // ==========================================
+                // JIKA MENGGUNAKAN CSV VERSI BARU (BERSIH)
+                // ==========================================
+                else {
+                    $no_roll      = trim($data[0] ?? '');
+                    $no_roll_asli = trim($data[1] ?? '');
+                    $no_po        = trim($data[2] ?? '');
+                    
+                    $currentJenis = trim($data[4] ?? '');
+                    $currentGsm   = trim($data[5] ?? '');
+                    $currentLebar = trim($data[6] ?? '');
+                    
+                    $sisa_kotor   = trim($data[9] ?? '0');
+                    $wilayah      = trim($data[10] ?? '');
+                    $lokasi       = trim($data[11] ?? '');
+                }
 
-                    // Konversi akhir ke float
-                    $sisa_final  = (float) ($sisa_bersih ?: 0);
+                // --- SMART PARSING ANGKA SISA KERTAS ---
+                $sisa_bersih = trim($sisa_kotor);
 
-                    // --- END PERBAIKAN ---
+                if (strpos($sisa_bersih, ',') !== false && strpos($sisa_bersih, '.') !== false) {
+                    if (strrpos($sisa_bersih, ',') > strrpos($sisa_bersih, '.')) {
+                        $sisa_bersih = str_replace('.', '', $sisa_bersih); 
+                        $sisa_bersih = str_replace(',', '.', $sisa_bersih);
+                    } else {
+                        $sisa_bersih = str_replace(',', '', $sisa_bersih);
+                    }
+                } else {
+                    if (preg_match('/[.,]\d{3}$/', $sisa_bersih)) {
+                        $sisa_bersih = str_replace(['.', ','], '', $sisa_bersih);
+                    } else {
+                        $sisa_bersih = str_replace(',', '.', $sisa_bersih);
+                    }
+                }
 
+                $sisa_bersih = preg_replace('/[^0-9.]/', '', $sisa_bersih);
+                $sisa_final  = (float) ($sisa_bersih ?: 0);
+                
+                // --- FORMATTING LEBAR (Bulatkan ke angka utuh) ---
+                // Jaga-jaga kalau ada koma (misal 165,00), ubah ke titik dulu
+                $lebar_bersih = str_replace(',', '.', $currentLebar);
+                // Ubah menjadi float dulu (165.00), lalu bulatkan dan jadikan integer (165)
+                $lebar_final  = (int) round((float) $lebar_bersih);
+
+
+                // INSERT ATAU UPDATE KE DATABASE
+                if (!empty($no_roll)) {
                     StockKertas::updateOrCreate(
                         ['no_roll' => $no_roll], 
                         [
                             'jenis'        => $currentJenis,
                             'gsm'          => $currentGsm,
-                            'lebar'        => $currentLebar,
+                            'lebar'        => $lebar_final, // <-- Gunakan variabel lebar yang sudah dibulatkan
                             'no_roll_asli' => $no_roll_asli,
                             'sisa_kertas'  => $sisa_final,
                             'no_po'        => $no_po,
@@ -109,14 +136,14 @@ class ImportStockController extends Controller
             fclose($handle);
             DB::commit();
             
-            return back()->with('success', 'Database Stok Kertas berhasil disinkronisasi sepenuhnya!');
+            return back()->with('success', 'Database Stok Kertas berhasil disinkronisasi otomatis!');
 
         } catch (\Exception $e) {
             DB::rollBack();
             if (isset($handle) && is_resource($handle)) {
                 fclose($handle);
             }
-            return back()->with('error', 'Gagal import! Pastikan format CSV sesuai. Error: ' . $e->getMessage());
+            return back()->with('error', 'Gagal import! Error: ' . $e->getMessage());
         }
     }
 }

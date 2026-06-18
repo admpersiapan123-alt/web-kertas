@@ -380,6 +380,18 @@ class SpkController extends Controller
                 }
 
                 $gsm_standar = $this->terjemahkanKode($input_gsm);
+
+                // --- RADAR PINTAR: FALLBACK T -> K ---
+                if ($gsm_standar !== '' && substr($gsm_standar, 0, 1) === 'T') {
+                    $kunci_t = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
+                    // Jika Forklift ternyata TIDAK PUNYA roll awalan T ini
+                    if (!isset($forkliftGroup[$kunci_t])) {
+                        // Banting setir ganti target pencarian ke awalan K
+                        $gsm_standar = 'K' . substr($gsm_standar, 1); 
+                    }
+                }
+                // -------------------------------------
+
                 if ($gsm_standar !== '') { 
                     $kunci = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
                     if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
@@ -422,6 +434,17 @@ class SpkController extends Controller
                 }
 
                 $gsm_standar = $this->terjemahkanKode($input_gsm);
+
+                // --- RADAR PINTAR: FALLBACK T -> K ---
+                if ($gsm_standar !== '' && substr($gsm_standar, 0, 1) === 'T') {
+                    $kunci_t = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
+                    // Jika Forklift ternyata TIDAK PUNYA roll awalan T ini
+                    if (!isset($forkliftGroup[$kunci_t])) {
+                        // Banting setir ganti target pencarian ke awalan K
+                        $gsm_standar = 'K' . substr($gsm_standar, 1); 
+                    }
+                }
+                // -------------------------------------
 
                 if ($gsm_standar !== '') {
                     $kunci = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
@@ -524,6 +547,18 @@ class SpkController extends Controller
                 }
 
                 $gsm_standar = $this->terjemahkanKode($input_gsm);
+
+                // --- RADAR PINTAR: FALLBACK T -> K ---
+                if ($gsm_standar !== '' && substr($gsm_standar, 0, 1) === 'T') {
+                    $kunci_t = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
+                    // Jika Forklift ternyata TIDAK PUNYA roll awalan T ini
+                    if (!isset($forkliftGroup[$kunci_t])) {
+                        // Banting setir ganti target pencarian ke awalan K
+                        $gsm_standar = 'K' . substr($gsm_standar, 1); 
+                    }
+                }
+                // -------------------------------------
+
                 if ($gsm_standar !== '') { 
                     $kunci = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
                     if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
@@ -559,6 +594,17 @@ class SpkController extends Controller
                 }
 
                 $gsm_standar = $this->terjemahkanKode($input_gsm);
+
+                // --- RADAR PINTAR: FALLBACK T -> K ---
+                if ($gsm_standar !== '' && substr($gsm_standar, 0, 1) === 'T') {
+                    $kunci_t = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;
+                    // Jika Forklift ternyata TIDAK PUNYA roll awalan T ini
+                    if (!isset($forkliftGroup[$kunci_t])) {
+                        // Banting setir ganti target pencarian ke awalan K
+                        $gsm_standar = 'K' . substr($gsm_standar, 1); 
+                    }
+                }
+                // -------------------------------------
 
                 if ($gsm_standar !== '') {
                     $kunci = $lebar_pakai_cm . '_' . $gsm_standar . '_' . $pos;

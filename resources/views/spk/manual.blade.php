@@ -12,10 +12,12 @@
         .bg-flute { background-color: #fff3cd !important; } 
         .spk-card { border-left: 5px solid #0d6efd; transition: all 0.3s ease; }
         
-        /* Styling khusus untuk Grid Tabel di dalam Card */
         .grid-header { background-color: #e9ecef; border-radius: 5px 5px 0 0; }
         .input-readonly { background-color: transparent !important; border: 1px dashed #ced4da; cursor: not-allowed; }
-        .input-aktual { background-color: #fff5f5 !important; border-color: #dc3545 !important; color: #dc3545; font-weight: bold; }
+        /* Box Aktual Eceran: Dibuat lebih terang agar jelas bisa diketik */
+        .input-aktual { background-color: #fff !important; border-color: #dc3545 !important; color: #dc3545; font-weight: bold; }
+        .input-aktual:focus { background-color: #fff5f5 !important; box-shadow: 0 0 5px rgba(220,53,69,0.5) !important; }
+        .input-aktual.bg-warning { background-color: #fff3cd !important; cursor: not-allowed; } /* Jika di-lock oleh bulk */
     </style>
 </head>
 <body>
@@ -24,7 +26,7 @@
     
     <div class="d-flex justify-content-between align-items-center mb-4">
         <a href="{{ url('/hitung-spk') }}" class="btn btn-outline-dark fw-bold shadow-sm">⬅️ KEMBALI</a>
-        <h3 class="fw-bold mb-0">🧮 Kalkulator SPK (Dengan Proporsional)</h3>
+        <h3 class="fw-bold mb-0">🧮 Kalkulator Manual (Hybrid Mode)</h3>
         <button type="button" class="btn btn-success fw-bold shadow-sm" onclick="simpanData()">💾 SAVE SEMUA</button>        
     </div>
 
@@ -73,7 +75,6 @@
                     </div>
 
                     <div class="border rounded p-3 bg-white shadow-sm">
-                        
                         <div class="row g-2 text-center align-items-end fw-bold small grid-header p-2 mb-2">
                             <div class="col-2 text-start text-muted">PARAMETER</div>
                             <div class="col">DB (1.0)</div>
@@ -92,11 +93,11 @@
 
                         <div class="row g-2 text-center align-items-center mb-2">
                             <div class="col-2 text-start fw-bold small text-muted">1. INPUT GSM</div>
-                            <div class="col"><input type="number" name="gsm_db[]" class="form-control fw-bold text-center input-db" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_db.'.$index) }}"></div>
-                            <div class="col"><input type="number" name="gsm_bm[]" class="form-control fw-bold text-center bg-flute input-bm" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_bm.'.$index) }}"></div>
-                            <div class="col"><input type="number" name="gsm_bl[]" class="form-control fw-bold text-center input-bl" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_bl.'.$index) }}"></div>
-                            <div class="col"><input type="number" name="gsm_cm[]" class="form-control fw-bold text-center bg-flute input-cm" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_cm.'.$index) }}"></div>
-                            <div class="col"><input type="number" name="gsm_cl[]" class="form-control fw-bold text-center input-cl" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_cl.'.$index) }}"></div>
+                            <div class="col"><input type="text" name="gsm_db[]" class="form-control fw-bold text-center input-db" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_db.'.$index) }}"></div>
+                            <div class="col"><input type="text" name="gsm_bm[]" class="form-control fw-bold text-center bg-flute input-bm" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_bm.'.$index) }}"></div>
+                            <div class="col"><input type="text" name="gsm_bl[]" class="form-control fw-bold text-center input-bl" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_bl.'.$index) }}"></div>
+                            <div class="col"><input type="text" name="gsm_cm[]" class="form-control fw-bold text-center bg-flute input-cm" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_cm.'.$index) }}"></div>
+                            <div class="col"><input type="text" name="gsm_cl[]" class="form-control fw-bold text-center input-cl" placeholder="GSM" onkeyup="hitungKalkulator()" value="{{ old('gsm_cl.'.$index) }}"></div>
                             <div class="col-2"></div>
                         </div>
 
@@ -111,41 +112,47 @@
                         </div>
 
                         <div class="row g-2 text-center align-items-center pt-2 border-top border-danger">
-                            <div class="col-2 text-start fw-bold small text-danger">3. AKTUAL (Kg)</div>
-                            <div class="col"><input type="text" name="aktual_db[]" class="form-control text-center input-aktual akt-db" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" name="aktual_bm[]" class="form-control text-center input-aktual akt-bm" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" name="aktual_bl[]" class="form-control text-center input-aktual akt-bl" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" name="aktual_cm[]" class="form-control text-center input-aktual akt-cm" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" name="aktual_cl[]" class="form-control text-center input-aktual akt-cl" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col-2"><input type="text" name="total_kg_aktual[]" class="form-control form-control-lg text-center fw-bold text-white bg-danger border-danger total-aktual-card" value="0.00" readonly tabindex="-1"></div>
+                            <div class="col-2 text-start fw-bold small text-danger">3. AKTUAL (Kg)<br><small class="text-muted fw-normal" style="font-size: 0.65rem;">(Bisa diketik manual)</small></div>
+                            <div class="col"><input type="number" step="0.01" name="akt_db[]" class="form-control text-center input-aktual akt-db" onkeyup="hitungKalkulator()" value="{{ old('akt_db.'.$index, '0.00') }}"></div>
+                            <div class="col"><input type="number" step="0.01" name="akt_bm[]" class="form-control text-center input-aktual akt-bm" onkeyup="hitungKalkulator()" value="{{ old('akt_bm.'.$index, '0.00') }}"></div>
+                            <div class="col"><input type="number" step="0.01" name="akt_bl[]" class="form-control text-center input-aktual akt-bl" onkeyup="hitungKalkulator()" value="{{ old('akt_bl.'.$index, '0.00') }}"></div>
+                            <div class="col"><input type="number" step="0.01" name="akt_cm[]" class="form-control text-center input-aktual akt-cm" onkeyup="hitungKalkulator()" value="{{ old('akt_cm.'.$index, '0.00') }}"></div>
+                            <div class="col"><input type="number" step="0.01" name="akt_cl[]" class="form-control text-center input-aktual akt-cl" onkeyup="hitungKalkulator()" value="{{ old('akt_cl.'.$index, '0.00') }}"></div>
+                            <div class="col-2"><input type="text" class="form-control text-center fw-bold text-danger border-danger input-readonly total-aktual-card" value="0.00" readonly tabindex="-1"></div>
                         </div>
 
                     </div>
                 </div>
             </div>
             @endforeach
-            
         </div>
 
         <div class="text-center mb-5">
             <button type="button" class="btn btn-outline-primary fw-bold px-5 py-2 shadow-sm" onclick="tambahCardKosong()">➕ TAMBAH SPK KOSONG</button>
         </div>
 
+        <div class="card shadow-sm border-info mb-4" style="border-width: 2px; border-style: dashed;">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold text-info mb-0">📦 INPUT BORONGAN (LIVE SYNC)</h6>
+                <span class="badge bg-success">⚡ Otomatis</span>
+            </div>
+            <div class="card-body bg-white">
+                <p class="small text-muted mb-3">Kotak kelompok kertas di bawah ini akan terbuat otomatis secara <b>Real-Time</b> saat Anda mengisi, meng-clone, atau menghapus SPK di atas.</p>
+                <div id="container-kelompok" class="row g-3">
+                    </div>
+            </div>
+        </div>
+
         <div class="card shadow-sm border-dark mb-4">
             <div class="card-header bg-dark text-white fw-bold fs-5 text-center">
-                📊 GRAND TOTAL (TEORI VS AKTUAL TIMBANGAN)
+                📊 GRAND TOTAL TEORI
             </div>
             <div class="card-body">
-                <div class="row text-center fw-bold mb-3 border-bottom pb-2">
+                <div class="row text-center fw-bold mb-2 border-bottom pb-2">
                     <div class="col-2 text-muted"></div>
-                    <div class="col-2">DB</div>
-                    <div class="col-2">BM</div>
-                    <div class="col-2">BL</div>
-                    <div class="col-2">CM</div>
-                    <div class="col-2">CL</div>
+                    <div class="col-2">DB</div><div class="col-2">BM</div><div class="col-2">BL</div><div class="col-2">CM</div><div class="col-2">CL</div>
                 </div>
-                
-                <div class="row text-center fw-bold fs-5 align-items-center mb-3">
+                <div class="row text-center fw-bold fs-5 align-items-center">
                     <div class="col-2 fs-6 text-muted text-end">TOTAL TEORI :</div>
                     <div class="col-2 text-secondary" id="gt_db">0.00</div>
                     <div class="col-2 text-secondary" id="gt_bm">0.00</div>
@@ -153,25 +160,14 @@
                     <div class="col-2 text-secondary" id="gt_cm">0.00</div>
                     <div class="col-2 text-secondary" id="gt_cl">0.00</div>
                 </div>
-
-                <div class="row text-center fw-bold fs-5 align-items-center bg-light p-3 rounded border">
-                    <div class="col-2 fs-6 text-danger text-end">INPUT AKTUAL (KG) :<br><small class="text-muted fw-normal">Isi dari data scanner</small></div>
-                    <div class="col-2"><input type="number" step="0.01" name="global_aktual_db" class="form-control fw-bold text-center text-danger border-danger aktual-global" id="akt_global_db" placeholder="Kg Aktual" value="{{ old('global_aktual_db') }}" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
-                    <div class="col-2"><input type="number" step="0.01" name="global_aktual_bm" class="form-control fw-bold text-center text-danger border-danger aktual-global" id="akt_global_bm" placeholder="Kg Aktual" value="{{ old('global_aktual_bm') }}" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
-                    <div class="col-2"><input type="number" step="0.01" name="global_aktual_bl" class="form-control fw-bold text-center text-danger border-danger aktual-global" id="akt_global_bl" placeholder="Kg Aktual" value="{{ old('global_aktual_bl') }}" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
-                    <div class="col-2"><input type="number" step="0.01" name="global_aktual_cm" class="form-control fw-bold text-center text-danger border-danger aktual-global" id="akt_global_cm" placeholder="Kg Aktual" value="{{ old('global_aktual_cm') }}" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
-                    <div class="col-2"><input type="number" step="0.01" name="global_aktual_cl" class="form-control fw-bold text-center text-danger border-danger aktual-global" id="akt_global_cl" placeholder="Kg Aktual" value="{{ old('global_aktual_cl') }}" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
-                </div>
             </div>
         </div>
     </form>
 </div>
 
 <script>
-    let cardCount = {{ count($oldSpks) }};
-    window.addEventListener('DOMContentLoaded', hitungKalkulator);
+    window.addEventListener('DOMContentLoaded', () => hitungKalkulator(false));
 
-    // FUNGSI SAKTI: Merapikan ulang nomor urut SPK setiap kali ada penambahan/penghapusan
     function reindexSPK() {
         let cards = document.querySelectorAll('.spk-card');
         cards.forEach((card, index) => {
@@ -181,43 +177,162 @@
         });
     }
 
-    function hitungKalkulator() {
+    // 1. FUNGSI LIVE SYNC KELOMPOK (DIPANGGIL OTOMATIS)
+    function generateKelompokOtomatis() {
         let cards = document.querySelectorAll('.spk-card');
-        
+        let kelompok = {}; 
+
+        cards.forEach((card, index) => {
+            let lebarRaw = parseFloat(card.querySelector('.input-lebar').value) || 0;
+            let lebarCm = lebarRaw > 500 ? lebarRaw / 10 : lebarRaw;
+            let meter = parseFloat(card.querySelector('.input-panjang').value) || 0;
+
+            ['db', 'bm', 'bl', 'cm', 'cl'].forEach(pos => {
+                let gsmMentah = card.querySelector('.input-' + pos).value.trim().toUpperCase();
+                if(gsmMentah && gsmMentah !== '-') {
+                    let l_pakai = lebarCm;
+                    let g_pakai = gsmMentah;
+                    
+                    if(gsmMentah.includes('/')) {
+                        let parts = gsmMentah.split('/');
+                        g_pakai = parts[0];
+                        let khusus = parseFloat(parts[1]);
+                        l_pakai = khusus > 500 ? khusus / 10 : khusus;
+                    }
+
+                    let key = l_pakai + '_' + g_pakai + '_' + pos.toUpperCase();
+                    if(!kelompok[key]) kelompok[key] = { meter: 0, baris: [] };
+                    
+                    kelompok[key].meter += meter;
+                    kelompok[key].baris.push(index + 1);
+                }
+            });
+        });
+
+        // SIMPAN ANGKA KG YANG SEDANG DIKETIK ADMIN (Agar tidak hilang saat Live Sync)
+        let savedBulkValues = {};
+        document.querySelectorAll('.input-bulk-kg').forEach(input => {
+            savedBulkValues[input.name] = input.value;
+        });
+
+        let html = '';
+        if (Object.keys(kelompok).length === 0) {
+            html = '<div class="col-12"><div class="alert alert-secondary py-2 text-center mb-0 border-0 shadow-sm">Ketik spesifikasi kertas di atas, kelompok akan muncul di sini...</div></div>';
+        } else {
+            for (let k in kelompok) {
+                let val = savedBulkValues[`bulk_aktual[${k}]`] || ''; // Kembalikan angka ketikan Admin
+                html += `
+                <div class="col-md-4">
+                    <div class="card border-info shadow-sm">
+                        <div class="card-body p-2 bg-light">
+                            <h6 class="fw-bold text-dark mb-1 text-center border-bottom border-info pb-1">${k}</h6>
+                            <small class="text-muted d-block text-center mb-2" style="font-size: 0.7rem;">Total: <b class="text-primary">${kelompok[k].meter} m</b> | Baris: ${kelompok[k].baris.join(', ')}</small>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-info text-white fw-bold">Aktual</span>
+                                <input type="number" step="0.01" name="bulk_aktual[${k}]" class="form-control fw-bold text-danger text-center input-bulk-kg" placeholder="Ketik Kg" onkeyup="hitungKalkulator(true)" onchange="hitungKalkulator(true)" value="${val}">
+                                <span class="input-group-text">Kg</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+        }
+        document.getElementById('container-kelompok').innerHTML = html;
+    }
+
+    // 2. FUNGSI OTAK KALKULASI UTAMA
+    function hitungKalkulator(isFromBulk = false) {
+        // Jika ketikan bukan berasal dari kotak Kg Borongan, jalankan Live Sync!
+        if (!isFromBulk) {
+            generateKelompokOtomatis();
+        }
+
+        let cards = document.querySelectorAll('.spk-card');
         let gtDB = 0, gtBM = 0, gtBL = 0, gtCM = 0, gtCL = 0;
         let totalMeterAll = 0; 
+        let kelompokMeter = {};
 
-        // TAHAP 1: Hitung Teori
+        // Kumpulkan total meter per grup
         cards.forEach(card => {
-            let lebarM = (parseFloat(card.querySelector('.input-lebar').value) || 0) / 100;
-            let panjangM = parseFloat(card.querySelector('.input-panjang').value) || 0;
-            totalMeterAll += panjangM;
+            let lebarRaw = parseFloat(card.querySelector('.input-lebar').value) || 0;
+            let lebarCm = lebarRaw > 500 ? lebarRaw / 10 : lebarRaw;
+            let meter = parseFloat(card.querySelector('.input-panjang').value) || 0;
 
+            ['db', 'bm', 'bl', 'cm', 'cl'].forEach(pos => {
+                let gsmRaw = card.querySelector('.input-' + pos).value.trim().toUpperCase();
+                if (gsmRaw && gsmRaw !== '-') {
+                    let g_pakai = gsmRaw, l_pakai = lebarCm;
+                    if(gsmRaw.includes('/')) {
+                        let parts = gsmRaw.split('/');
+                        g_pakai = parts[0];
+                        let khusus = parseFloat(parts[1]);
+                        l_pakai = khusus > 500 ? khusus/10 : khusus;
+                    }
+                    let key = l_pakai + '_' + g_pakai + '_' + pos.toUpperCase();
+                    if(!kelompokMeter[key]) kelompokMeter[key] = 0;
+                    kelompokMeter[key] += meter;
+                }
+            });
+        });
+
+        // Eksekusi Teori & Aktual
+        cards.forEach(card => {
+            let lebarRaw = parseFloat(card.querySelector('.input-lebar').value) || 0;
+            let lebarCm = lebarRaw > 500 ? lebarRaw / 10 : lebarRaw;
+            let meter = parseFloat(card.querySelector('.input-panjang').value) || 0;
             let fBM = parseFloat(card.querySelector('.input-faktor-bm').value) || 1.35;
             let fCM = parseFloat(card.querySelector('.input-faktor-cm').value) || 1.43;
 
-            let gDB = parseFloat(card.querySelector('.input-db').value) || 0;
-            let gBM = parseFloat(card.querySelector('.input-bm').value) || 0;
-            let gBL = parseFloat(card.querySelector('.input-bl').value) || 0;
-            let gCM = parseFloat(card.querySelector('.input-cm').value) || 0;
-            let gCL = parseFloat(card.querySelector('.input-cl').value) || 0;
+            let totalTeoriCard = 0, totalAktualCard = 0;
 
-            let kgDB = (panjangM * lebarM * gDB * 1.0) / 1000;
-            let kgBM = (panjangM * lebarM * gBM * fBM) / 1000;
-            let kgBL = (panjangM * lebarM * gBL * 1.0) / 1000;
-            let kgCM = (panjangM * lebarM * gCM * fCM) / 1000;
-            let kgCL = (panjangM * lebarM * gCL * 1.0) / 1000;
+            ['db', 'bm', 'bl', 'cm', 'cl'].forEach(pos => {
+                let gsmRaw = card.querySelector('.input-' + pos).value.trim().toUpperCase();
+                let fMult = (pos === 'bm') ? fBM : (pos === 'cm' ? fCM : 1.0);
+                let l_pakai = lebarCm, g_pakai = gsmRaw, gsmBersih = 0;
+                
+                if (gsmRaw && gsmRaw !== '-') {
+                    if(gsmRaw.includes('/')) {
+                        let parts = gsmRaw.split('/');
+                        g_pakai = parts[0];
+                        let khusus = parseFloat(parts[1]);
+                        l_pakai = khusus > 500 ? khusus/10 : khusus;
+                    }
+                    gsmBersih = parseFloat(g_pakai.replace(/[^0-9]/g, '')) || 0; 
+                }
 
-            card.querySelector('.kg-db').value = kgDB.toFixed(2);
-            card.querySelector('.kg-bm').value = kgBM.toFixed(2);
-            card.querySelector('.kg-bl').value = kgBL.toFixed(2);
-            card.querySelector('.kg-cm').value = kgCM.toFixed(2);
-            card.querySelector('.kg-cl').value = kgCL.toFixed(2);
-            
-            let totalTeoriCard = kgDB + kgBM + kgBL + kgCM + kgCL;
+                let kgTeori = (meter * (l_pakai/100) * gsmBersih * fMult) / 1000;
+                card.querySelector('.kg-' + pos).value = kgTeori.toFixed(2);
+                totalTeoriCard += kgTeori;
+
+                if(pos === 'db') gtDB += kgTeori;
+                if(pos === 'bm') gtBM += kgTeori;
+                if(pos === 'bl') gtBL += kgTeori;
+                if(pos === 'cm') gtCM += kgTeori;
+                if(pos === 'cl') gtCL += kgTeori;
+
+                let aktInput = card.querySelector('.akt-' + pos);
+                let key = l_pakai + '_' + g_pakai + '_' + pos.toUpperCase();
+                let bulkNode = document.querySelector(`input[name="bulk_aktual[${key}]"]`);
+
+                if (bulkNode && bulkNode.value !== '') {
+                    let bulkKg = parseFloat(bulkNode.value) || 0;
+                    let totMeterGrup = kelompokMeter[key] || 0;
+                    let rasio = totMeterGrup > 0 ? (meter / totMeterGrup) : 0;
+                    let jatah = rasio * bulkKg;
+                    
+                    aktInput.value = jatah.toFixed(2);
+                    aktInput.readOnly = true; 
+                    aktInput.classList.add('bg-warning'); 
+                    totalAktualCard += jatah;
+                } else {
+                    aktInput.readOnly = false;
+                    aktInput.classList.remove('bg-warning');
+                    totalAktualCard += parseFloat(aktInput.value) || 0;
+                }
+            });
+
             card.querySelector('.total-teori-card').value = totalTeoriCard.toFixed(2);
-
-            gtDB += kgDB; gtBM += kgBM; gtBL += kgBL; gtCM += kgCM; gtCL += kgCL;
+            card.querySelector('.total-aktual-card').value = totalAktualCard.toFixed(2);
         });
 
         document.getElementById('gt_db').innerText = gtDB.toFixed(2);
@@ -225,39 +340,6 @@
         document.getElementById('gt_bl').innerText = gtBL.toFixed(2);
         document.getElementById('gt_cm').innerText = gtCM.toFixed(2);
         document.getElementById('gt_cl').innerText = gtCL.toFixed(2);
-
-        // TAHAP 2: Hitung Alokasi Prorate
-        let aktDB = parseFloat(document.getElementById('akt_global_db').value) || gtDB;
-        let aktBM = parseFloat(document.getElementById('akt_global_bm').value) || gtBM;
-        let aktBL = parseFloat(document.getElementById('akt_global_bl').value) || gtBL;
-        let aktCM = parseFloat(document.getElementById('akt_global_cm').value) || gtCM;
-        let aktCL = parseFloat(document.getElementById('akt_global_cl').value) || gtCL;
-
-        cards.forEach(card => {
-            let panjangM = parseFloat(card.querySelector('.input-panjang').value) || 0;
-            let rasio = totalMeterAll > 0 ? (panjangM / totalMeterAll) : 0;
-
-            let gDB = parseFloat(card.querySelector('.input-db').value) || 0;
-            let gBM = parseFloat(card.querySelector('.input-bm').value) || 0;
-            let gBL = parseFloat(card.querySelector('.input-bl').value) || 0;
-            let gCM = parseFloat(card.querySelector('.input-cm').value) || 0;
-            let gCL = parseFloat(card.querySelector('.input-cl').value) || 0;
-
-            let jatahDB = gDB > 0 ? (rasio * aktDB) : 0;
-            let jatahBM = gBM > 0 ? (rasio * aktBM) : 0;
-            let jatahBL = gBL > 0 ? (rasio * aktBL) : 0;
-            let jatahCM = gCM > 0 ? (rasio * aktCM) : 0;
-            let jatahCL = gCL > 0 ? (rasio * aktCL) : 0;
-
-            card.querySelector('.akt-db').value = jatahDB.toFixed(2);
-            card.querySelector('.akt-bm').value = jatahBM.toFixed(2);
-            card.querySelector('.akt-bl').value = jatahBL.toFixed(2);
-            card.querySelector('.akt-cm').value = jatahCM.toFixed(2);
-            card.querySelector('.akt-cl').value = jatahCL.toFixed(2);
-
-            let totalAktualCard = jatahDB + jatahBM + jatahBL + jatahCM + jatahCL;
-            card.querySelector('.total-aktual-card').value = totalAktualCard.toFixed(2);
-        });
     }
 
     function simpanData() {
@@ -274,13 +356,11 @@
         let inputsBaru = cardBaru.querySelectorAll('input');
         inputsBaru.forEach((input, index) => { input.value = values[index]; });
         
-        // Hapus "cardCount++" (Sudah tidak kita pakai)
         cardBaru.querySelector('input[name="no_spk[]"]').value = "";
-        
         document.getElementById('spk-container').appendChild(cardBaru);
         
-        reindexSPK(); // PANGGIL DI SINI!
-        hitungKalkulator();
+        reindexSPK(); 
+        hitungKalkulator(false); // <-- isFromBulk false: Bikin Live Sync nyala saat di-clone!
         updateTombolHapus();
     }
 
@@ -288,7 +368,6 @@
         let cardPertama = document.querySelector('.spk-card');
         let cardBaru = cardPertama.cloneNode(true);
         
-        // Hapus "cardCount++"
         let inputs = cardBaru.querySelectorAll('input');
         inputs.forEach(input => {
             if(!input.classList.contains('input-faktor-bm') && !input.classList.contains('input-faktor-cm')) {
@@ -296,20 +375,21 @@
             }
         });
         
+        ['db', 'bm', 'bl', 'cm', 'cl'].forEach(pos => cardBaru.querySelector('.akt-'+pos).value = "0.00");
         cardBaru.querySelector('.total-teori-card').value = "0.00";
         cardBaru.querySelector('.total-aktual-card').value = "0.00";
         document.getElementById('spk-container').appendChild(cardBaru);
         
-        reindexSPK(); // PANGGIL DI SINI!
+        reindexSPK(); 
+        hitungKalkulator(false); // <-- isFromBulk false: Bikin Live Sync nyala saat tambah kosong!
         updateTombolHapus();
     }
 
     function hapusCard(btn) {
         let card = btn.closest('.spk-card');
         card.remove();
-        
-        reindexSPK(); // PANGGIL DI SINI!
-        hitungKalkulator();
+        reindexSPK(); 
+        hitungKalkulator(false); // <-- isFromBulk false: Update grup otomatis saat dihapus
         updateTombolHapus();
     }
 
