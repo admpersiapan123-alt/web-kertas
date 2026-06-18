@@ -13,48 +13,62 @@
         .spk-card { border-left: 5px solid #ffc107; transition: all 0.3s ease; }
         .grid-header { background-color: #e9ecef; border-radius: 5px 5px 0 0; }
         .input-readonly { background-color: transparent !important; border: 1px dashed #ced4da; cursor: not-allowed; }
-        /* Styling Baru: Input Aktual Berwarna Lembut & Tidak Readonly Lagi */
         .input-aktual { background-color: #fff5f5 !important; border-color: #feb2b2 !important; color: #dc3545; font-weight: bold; }
         .input-aktual:focus { background-color: #fff0f0 !important; border-color: #dc3545 !important; box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.25); }
+        
+        /* Highlight khusus untuk baris error / anomali */
+        .row-warning { background-color: #fff3cd !important; }
+        .row-danger { background-color: #f8d7da !important; }
     </style>
 </head>
 <body>
 @php
-    // 1. Tarik semua data roll dari shift yang bersangkutan
+    // 1. Tarik semua data roll & URUTKAN (Roll Habis Maju Duluan!)
     $transaksiRolls = \App\Models\TransaksiRoll::with('masterKertas')
         ->where('shift_id', $kalkulasi->shift_id ?? 0)
-        ->get();
+        ->get()
+        ->sortBy(function($roll) {
+            // LOGIKA PENGURUTAN: 
+            // Jika sisa ludes (0), kasih nomor antrean 1. Jika masih sisa, antrean 2.
+            return floatval($roll->sisa_kilo_akhir) <= 0 ? 1 : 2;
+        })
+        ->values(); // WAJIB: Reset urutan index array setelah disortir
 
-    // -- TAMBAHAN BARU: ISI TANGKI SALDO AWAL SEMUA ROLL --
+    // 2. Setup Saldo & Tracker SPK
     $saldo_roll_global = [];
+    $pemakaian_roll_di_spk = []; 
+
     foreach($transaksiRolls as $r) {
         $awal = floatval($r->sisa_kilo_awal);
         $akhir = floatval($r->sisa_kilo_akhir);
         $saldo_roll_global[$r->id] = ($akhir <= 0) ? $awal : ($awal - $akhir);
+        $pemakaian_roll_di_spk[$r->id] = []; 
     }
 
-    // 2. Buat fungsi kamus mini khusus untuk halaman ini
+    // Mengumpulkan daftar lebar SPK yang valid untuk deteksi Slash (Beda Ukuran)
+    $listLebarSpk = [];
+    if(isset($kalkulasi->data_spk)) {
+        foreach($kalkulasi->data_spk as $s) {
+            $listLebarSpk[] = floatval($s['lebar_cm']);
+        }
+    }
+
+    // 3. Buat fungsi kamus mini khusus untuk halaman ini
     if(!function_exists('terjemahkanKodeBlade')) {
         function terjemahkanKodeBlade($kode) {
             if (!$kode || $kode == '-') return '';
             $kode = strtoupper(str_replace(' ', '', $kode));
             
-            // Format Forklift (B150, W140)
             if (preg_match('/^([A-Z]+)(\d+)/', $kode, $matches)) {
                 $huruf = $matches[1];
                 if ($huruf == 'W') $huruf = 'WK';
-                
-                // --- ATURAN BARU: T jadikan otomatis K ---
                 if ($huruf == 'T') $huruf = 'K';
-                
                 return $huruf . $matches[2];
             }
             
-            // Format Monitor (160BB, 160WS)
             if (preg_match('/^(\d+)([A-Z]+)/', $kode, $matches)) {
                 $angka = $matches[1];
                 $huruf = substr($matches[2], 0, 1);
-                
                 if (!in_array($huruf, ['K', 'B', 'T', 'M', 'W'])) $huruf = 'M';
                 
                 $angka_db = $angka;
@@ -66,8 +80,6 @@
                 if ($angka == '160') { $angka_db = ($huruf == 'W') ? '140' : '150'; }
                 
                 $prefix = ($huruf == 'W') ? 'WK' : $huruf;
-                
-                // --- ATURAN BARU: T jadikan otomatis K ---
                 if ($prefix == 'T') $prefix = 'K';
                 
                 return $prefix . $angka_db;
@@ -76,7 +88,8 @@
         }
     }
 @endphp
-<div class="container py-4" style="max-width: 1000px;">
+
+<div class="container py-4" style="max-width: 1100px;">
     
     <div class="d-flex justify-content-between align-items-center mb-4">
         <a href="{{ url('/hitung-spk/riwayat') }}" class="btn btn-outline-dark fw-bold shadow-sm">⬅️ KEMBALI</a>
@@ -84,7 +97,6 @@
         <div>
             <h3 class="fw-bold mb-0">✏️ Edit Sesi: <span class="text-warning">{{ $kalkulasi->kode_sesi }}</span></h3>
             @php
-                // Cari data shift berdasarkan ID yang tersimpan
                 $shiftInfo = \App\Models\Shift::find($kalkulasi->shift_id);
             @endphp
             @if($shiftInfo)
@@ -121,13 +133,13 @@
                     <div class="row g-2 mb-3">
                         <div class="col-md-4">
                             <label class="fw-bold small text-muted">NOMOR SPK / CUSTOM</label>
-                            <input type="text" name="no_spk[]" class="form-control fw-bold text-uppercase" value="{{ $spk['no_spk'] ?? ($spk['no_spk'] ?? '') }}" required>
+                            <input type="text" name="no_spk[]" class="form-control fw-bold text-uppercase" value="{{ $spk['no_spk'] ?? '' }}" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="fw-bold small text-muted">LEBAR KERTAS (cm/mm)</label>
+                            <label class="fw-bold small text-muted">LEBAR KERTAS (cm)</label>
                             <div class="input-group">
                                 <input type="number" name="lebar_mm[]" class="form-control fw-bold text-center input-lebar" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()" value="{{ $spk['lebar_cm'] }}" required>
-                                <span class="input-group-text">cm/mm</span>
+                                <span class="input-group-text">cm</span>
                             </div>
                         </div>
                         <div class="col-md-4">
@@ -143,42 +155,70 @@
                         <div class="row g-2 text-center align-items-end fw-bold small grid-header p-2 mb-2">
                             <div class="col-2 text-start text-muted">PARAMETER</div>
                             <div class="col">DB (1.0)</div>
-                            <div class="col text-primary">BM<br><input type="number" step="0.01" name="faktor_bm[]" class="form-control form-control-sm text-center text-primary fw-bold mx-auto mt-1 input-faktor-bm" value="{{ $spk['faktor_bm'] ?? '1.36' }}" style="width: 60px;" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
+                            <div class="col text-primary">BM<br><input type="number" step="0.01" name="faktor_bm[]" class="form-control form-control-sm text-center text-primary fw-bold mx-auto mt-1 input-faktor-bm" onkeyup="hitungKalkulator()" value="{{ $spk['faktor_bm'] ?? '1.36' }}" style="width: 60px;"></div>
                             <div class="col">BL (1.0)</div>
-                            <div class="col text-primary">CM<br><input type="number" step="0.01" name="faktor_cm[]" class="form-control form-control-sm text-center text-primary fw-bold mx-auto mt-1 input-faktor-cm" value="{{ $spk['faktor_cm'] ?? '1.46' }}" style="width: 60px;" onkeyup="hitungKalkulator()" onchange="hitungKalkulator()"></div>
+                            <div class="col text-primary">CM<br><input type="number" step="0.01" name="faktor_cm[]" class="form-control form-control-sm text-center text-primary fw-bold mx-auto mt-1 input-faktor-cm" onkeyup="hitungKalkulator()" value="{{ $spk['faktor_cm'] ?? '1.46' }}" style="width: 60px;"></div>
                             <div class="col">CL (1.0)</div>
                             <div class="col-2 text-success">TOTAL</div>
                         </div>
 
                         <div class="row g-2 text-center align-items-center mb-2">
                             <div class="col-2 text-start fw-bold small text-muted">1. INPUT GSM</div>
-                            <div class="col"><input type="text" name="gsm_db[]" class="form-control form-control-sm fw-bold text-center input-db" value="{{ $spk['gsm_db'] ?? '' }}" onkeyup="hitungKalkulator()"></div>
-                            <div class="col"><input type="text" name="gsm_bm[]" class="form-control form-control-sm fw-bold text-center bg-flute input-bm" value="{{ $spk['gsm_bm'] ?? '' }}" onkeyup="hitungKalkulator()"></div>
-                            <div class="col"><input type="text" name="gsm_bl[]" class="form-control form-control-sm fw-bold text-center input-bl" value="{{ $spk['gsm_bl'] ?? '' }}" onkeyup="hitungKalkulator()"></div>
-                            <div class="col"><input type="text" name="gsm_cm[]" class="form-control form-control-sm fw-bold text-center bg-flute input-cm" value="{{ $spk['gsm_cm'] ?? '' }}" onkeyup="hitungKalkulator()"></div>
-                            <div class="col"><input type="text" name="gsm_cl[]" class="form-control form-control-sm fw-bold text-center input-cl" value="{{ $spk['gsm_cl'] ?? '' }}" onkeyup="hitungKalkulator()"></div>
+                            <div class="col"><input type="text" name="gsm_db[]" class="form-control form-control-sm fw-bold text-center input-db" onkeyup="hitungKalkulator()" value="{{ $spk['gsm_db'] ?? '' }}"></div>
+                            <div class="col"><input type="text" name="gsm_bm[]" class="form-control form-control-sm fw-bold text-center bg-flute input-bm" onkeyup="hitungKalkulator()" value="{{ $spk['gsm_bm'] ?? '' }}"></div>
+                            <div class="col"><input type="text" name="gsm_bl[]" class="form-control form-control-sm fw-bold text-center input-bl" onkeyup="hitungKalkulator()" value="{{ $spk['gsm_bl'] ?? '' }}"></div>
+                            <div class="col"><input type="text" name="gsm_cm[]" class="form-control form-control-sm fw-bold text-center bg-flute input-cm" onkeyup="hitungKalkulator()" value="{{ $spk['gsm_cm'] ?? '' }}"></div>
+                            <div class="col"><input type="text" name="gsm_cl[]" class="form-control form-control-sm fw-bold text-center input-cl" onkeyup="hitungKalkulator()" value="{{ $spk['gsm_cl'] ?? '' }}"></div>
                             <div class="col-2"></div>
                         </div>
 
                         <div class="row g-2 text-center align-items-center mb-3">
                             <div class="col-2 text-start fw-bold small text-secondary">2. TEORI (Kg)</div>
-                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-db" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-bm" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-bl" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-cm" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-cl" value="0.00" readonly tabindex="-1"></div>
-                            <div class="col-2"><input type="text" class="form-control form-control-sm text-center fw-bold input-readonly text-secondary total-teori-card" value="0.00" readonly tabindex="-1"></div>
+                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-db" value="0.00" readonly></div>
+                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-bm" value="0.00" readonly></div>
+                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-bl" value="0.00" readonly></div>
+                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-cm" value="0.00" readonly></div>
+                            <div class="col"><input type="text" class="form-control form-control-sm text-center input-readonly kg-cl" value="0.00" readonly></div>
+                            <div class="col-2"><input type="text" class="form-control form-control-sm text-center fw-bold input-readonly text-secondary total-teori-card" value="0.00" readonly></div>
                         </div>
 
                         <div class="row g-2 text-center align-items-center pt-2 border-top border-danger">
                             <div class="col-2 text-start fw-bold small text-danger">3. AKTUAL (Kg)</div>
-                            <div class="col"><input type="number" step="0.01" name="aktual_db[]" class="form-control form-control-sm text-center input-aktual akt-db" value="{{ $spk['akt_db'] ?? 0 }}" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)"></div>
-                            <div class="col"><input type="number" step="0.01" name="aktual_bm[]" class="form-control form-control-sm text-center input-aktual akt-bm" value="{{ $spk['akt_bm'] ?? 0 }}" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)"></div>
-                            <div class="col"><input type="number" step="0.01" name="aktual_bl[]" class="form-control form-control-sm text-center input-aktual akt-bl" value="{{ $spk['akt_bl'] ?? 0 }}" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)"></div>
-                            <div class="col"><input type="number" step="0.01" name="aktual_cm[]" class="form-control form-control-sm text-center input-aktual akt-cm" value="{{ $spk['akt_cm'] ?? 0 }}" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)"></div>
-                            <div class="col"><input type="number" step="0.01" name="aktual_cl[]" class="form-control form-control-sm text-center input-aktual akt-cl" value="{{ $spk['akt_cl'] ?? 0 }}" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)"></div>
-                            <div class="col-2"><input type="text" name="total_kg_aktual[]" class="form-control form-control-md text-center fw-bold text-white bg-danger border-danger total-aktual-card" value="{{ $spk['total_aktual'] ?? 0 }}" readonly tabindex="-1"></div>
+                            
+                            <div class="col">
+                                <input type="number" step="0.01" name="aktual_db[]" class="form-control form-control-sm text-center input-aktual akt-db" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)" value="{{ $spk['akt_db'] ?? 0 }}">
+                                <div class="small text-danger fw-bold d-none warn-pos-db" style="font-size: 10px; margin-top: 2px; line-height: 1.1;"></div>
+                            </div>
+                            
+                            <div class="col">
+                                <input type="number" step="0.01" name="aktual_bm[]" class="form-control form-control-sm text-center input-aktual akt-bm" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)" value="{{ $spk['akt_bm'] ?? 0 }}">
+                                <div class="small text-danger fw-bold d-none warn-pos-bm" style="font-size: 10px; margin-top: 2px; line-height: 1.1;"></div>
+                            </div>
+                            
+                            <div class="col">
+                                <input type="number" step="0.01" name="aktual_bl[]" class="form-control form-control-sm text-center input-aktual akt-bl" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)" value="{{ $spk['akt_bl'] ?? 0 }}">
+                                <div class="small text-danger fw-bold d-none warn-pos-bl" style="font-size: 10px; margin-top: 2px; line-height: 1.1;"></div>
+                            </div>
+                            
+                            <div class="col">
+                                <input type="number" step="0.01" name="aktual_cm[]" class="form-control form-control-sm text-center input-aktual akt-cm" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)" value="{{ $spk['akt_cm'] ?? 0 }}">
+                                <div class="small text-danger fw-bold d-none warn-pos-cm" style="font-size: 10px; margin-top: 2px; line-height: 1.1;"></div>
+                            </div>
+                            
+                            <div class="col">
+                                <input type="number" step="0.01" name="aktual_cl[]" class="form-control form-control-sm text-center input-aktual akt-cl" onkeyup="hitungManualCard(this)" onchange="hitungManualCard(this)" value="{{ $spk['akt_cl'] ?? 0 }}">
+                                <div class="small text-danger fw-bold d-none warn-pos-cl" style="font-size: 10px; margin-top: 2px; line-height: 1.1;"></div>
+                            </div>
+                            
+                            <div class="col-2">
+                                <input type="text" name="total_kg_aktual[]" class="form-control form-control-md text-center fw-bold text-white bg-danger border-danger total-aktual-card" value="{{ $spk['total_aktual'] ?? 0 }}" readonly>
+                            </div>
                         </div>
+
+                        <div class="alert alert-danger mt-2 py-2 px-3 d-none warning-selisih-val" role="alert" style="font-size: 0.85rem;">
+                            <strong>⚠️ Peringatan Selisih Tinggi!</strong> Berat aktual berbeda <span class="txt-persen-selisih text-decoration-underline">0</span>% dari kalkulasi teori (Teori: <span class="txt-teori-val">0</span> Kg | Aktual: <span class="txt-aktual-val">0</span> Kg). Pastikan tidak ada salah ketik data!
+                        </div>
+
                         <div class="row g-2 text-center align-items-start pt-3 border-top border-info mt-2">
                             <div class="col-2 text-start fw-bold small text-info">
                                 4. INFO ROLL<br>
@@ -187,57 +227,77 @@
                             
                             @foreach(['db', 'bm', 'bl', 'cm', 'cl'] as $pos)
                                 <div class="col text-center">
-                                    @php
-                                        $input_mentah = $spk["gsm_$pos"] ?? '';
-                                        $lebar_spk = floatval($spk['lebar_cm']);
-                                        
-                                        // Deteksi trik tembak ukuran (Garis miring)
-                                        if(strpos($input_mentah, '/') !== false) {
-                                            $parts = explode('/', $input_mentah);
-                                            $input_mentah = $parts[0];
-                                            $lebar_khusus = floatval($parts[1]);
-                                            $lebar_spk = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                                        }
-                                        
-                                        $gsm_standar = terjemahkanKodeBlade($input_mentah);
-                                        $matchedRolls = [];
-                                        
-                                        // Cari Jodohnya di data Forklift
-                                        if($gsm_standar !== '') {
-                                            foreach($transaksiRolls as $r) {
-                                                $r_lebar = floatval($r->masterKertas->lebar ?? 0);
-                                                $r_lebar = $r_lebar > 500 ? ($r_lebar / 10) : $r_lebar;
-                                                $r_gsm = terjemahkanKodeBlade($r->masterKertas->gsm ?? '');
-                                                $r_pos = strtoupper($r->posisi_mesin);
-                                                
-                                                if($r_lebar == $lebar_spk && $r_gsm == $gsm_standar && $r_pos == strtoupper($pos)) {
-                                                    $matchedRolls[] = $r;
-                                                }
-                                            }
-                                        }
-                                    @endphp
+            @php
+                $input_mentah = $spk["gsm_$pos"] ?? '';
+                $lebar_spk = floatval($spk['lebar_cm']);
+                $is_tembak = false;
+                $lebar_tembak = 0;
+                
+                // Deteksi trik tembak ukuran (Garis miring)
+                if(strpos($input_mentah, '/') !== false) {
+                    $is_tembak = true;
+                    $parts = explode('/', $input_mentah);
+                    $input_mentah = $parts[0];
+                    $lebar_khusus = floatval($parts[1]);
+                    $lebar_spk = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+                    $lebar_tembak = $lebar_spk;
+                }
+                
+                $gsm_standar = terjemahkanKodeBlade($input_mentah);
+                $matchedRolls = [];
+                
+                if($gsm_standar !== '') {
+                    // --- MERGE BUCKET LOGIC (SINKRON DENGAN CONTROLLER) ---
+                    // 1. Ubah target pencarian SPK: Jika B atau T, anggap mencari K
+                    $target_gsm = $gsm_standar;
+                    if (in_array(substr($target_gsm, 0, 1), ['B', 'T'])) {
+                        $target_gsm = 'K' . substr($target_gsm, 1);
+                    }
+
+                    // 2. Cari Jodoh di data Forklift (Yang sudah disorting 0 Kg maju duluan)
+                    foreach($transaksiRolls as $r) {
+                        $r_lebar = floatval($r->masterKertas->lebar ?? 0);
+                        $r_lebar = $r_lebar > 500 ? ($r_lebar / 10) : $r_lebar;
+
+                        $r_gsm_asli = terjemahkanKodeBlade($r->masterKertas->gsm ?? '');
+                        $r_gsm_normalized = $r_gsm_asli;
+
+                        // Anggap roll B/T dari forklift sebagai K juga agar bisa digabung
+                        if (in_array(substr($r_gsm_normalized, 0, 1), ['B', 'T'])) {
+                            $r_gsm_normalized = 'K' . substr($r_gsm_normalized, 1);
+                        }
+
+                        $r_pos = strtoupper($r->posisi_mesin);
+
+                        // Jika ukuran, posisi, dan rumpun kertas (K/B/T) cocok, masukkan antrean!
+                        if($r_lebar == $lebar_spk && $r_gsm_normalized == $target_gsm && $r_pos == strtoupper($pos)) {
+                            $matchedRolls[] = $r;
+                        }
+                    }
+                }
+            @endphp
+
+                                    @if($is_tembak)
+                                        <div class="badge bg-danger mb-1 shadow-sm" style="font-size: 0.55rem;">⚠️ Slash: {{ $lebar_tembak }}cm</div>
+                                    @endif
                                     
                                     @if(count($matchedRolls) > 0)
                                         @php
-                                            // Ambil target beban Kg Aktual milik SPK ini di posisi ini
                                             $kebutuhan_spk = floatval($spk["akt_$pos"] ?? 0);
                                         @endphp
 
                                         @foreach($matchedRolls as $r)
                                             @php
-                                                // Cek berapa sisa saldo roll ini di "Tangki Global"
                                                 $saldo_saat_ini = $saldo_roll_global[$r->id] ?? 0;
                                                 $diambil = 0;
 
-                                                // Jika SPK masih butuh Kg DAN Roll ini masih punya saldo
                                                 if($kebutuhan_spk > 0 && $saldo_saat_ini > 0) {
-                                                    
-                                                    // Sedot seperlunya (tidak boleh melebihi sisa roll)
                                                     $diambil = min($kebutuhan_spk, $saldo_saat_ini);
-                                                    
-                                                    // POTONG SALDO ROLL & POTONG KEBUTUHAN SPK
                                                     $saldo_roll_global[$r->id] -= $diambil;
                                                     $kebutuhan_spk -= $diambil;
+
+                                                    $nama_spk = $spk['no_spk'] ?? 'Tanpa Nama';
+                                                    $pemakaian_roll_di_spk[$r->id][] = "SPK #" . ($index + 1) . " <span class='text-muted' style='font-size:0.7rem'>($nama_spk)</span>";
                                                 }
                                             @endphp
 
@@ -252,12 +312,12 @@
                                         @if($kebutuhan_spk > 0.1)
                                             <div class="border border-warning rounded p-1 mb-1 bg-light text-center shadow-sm" style="font-size: 0.65rem; line-height: 1.1;">
                                                 <span class="text-warning fw-bold">⚠️ Sisa: {{ number_format($kebutuhan_spk, 2) }} Kg</span><br>
-                                                <span class="text-muted" style="font-size: 0.55rem;">(Roll habis / tidak cukup)</span>
+                                                <span class="text-muted" style="font-size: 0.55rem;">(Roll tak cukup)</span>
                                             </div>
                                         @endif
 
                                     @elseif($input_mentah !== '')
-                                        <div class="border border-danger rounded p-1 mb-1 bg-white text-center" style="font-size: 0.65rem;">
+                                        <div class="border border-danger rounded p-1 mb-1 bg-white text-center shadow-sm" style="font-size: 0.65rem;">
                                             <span class="text-danger fw-bold">❌ Kosong</span>
                                         </div>
                                     @endif
@@ -290,56 +350,31 @@
             </div>
         </div>
 
-        <div class="card shadow-sm border-danger mb-4">
-            <div class="card-header bg-danger text-white fw-bold fs-5 text-center">🎯 RESET/HITUNG PROPORSIONAL GLOBAL (DARI FORKLIFT)</div>
-            <div class="card-body bg-light">
-                @php
-                    $sum_db = collect($kalkulasi->data_spk)->sum('akt_db');
-                    $sum_bm = collect($kalkulasi->data_spk)->sum('akt_bm');
-                    $sum_bl = collect($kalkulasi->data_spk)->sum('akt_bl');
-                    $sum_cm = collect($kalkulasi->data_spk)->sum('akt_cm');
-                    $sum_cl = collect($kalkulasi->data_spk)->sum('akt_cl');
-                @endphp
-                <div class="row text-center fw-bold fs-5 align-items-center">
-                    <div class="col-2 fs-6 text-danger text-end">INPUT GLOBAL :<br><small class="text-muted fw-normal">Ketik di sini jika ingin menimpa prorate otomatis</small></div>
-                    <div class="col-2"><input type="number" step="0.01" class="form-control fw-bold text-center border-danger" id="akt_global_db" value="{{ $sum_db > 0 ? $sum_db : '' }}" onkeyup="hitungKalkulator('global')" onchange="hitungKalkulator('global')"></div>
-                    <div class="col-2"><input type="number" step="0.01" class="form-control fw-bold text-center border-danger" id="akt_global_bm" value="{{ $sum_bm > 0 ? $sum_bm : '' }}" onkeyup="hitungKalkulator('global')" onchange="hitungKalkulator('global')"></div>
-                    <div class="col-2"><input type="number" step="0.01" class="form-control fw-bold text-center border-danger" id="akt_global_bl" value="{{ $sum_bl > 0 ? $sum_bl : '' }}" onkeyup="hitungKalkulator('global')" onchange="hitungKalkulator('global')"></div>
-                    <div class="col-2"><input type="number" step="0.01" class="form-control fw-bold text-center border-danger" id="akt_global_cm" value="{{ $sum_cm > 0 ? $sum_cm : '' }}" onkeyup="hitungKalkulator('global')" onchange="hitungKalkulator('global')"></div>
-                    <div class="col-2"><input type="number" step="0.01" class="form-control fw-bold text-center border-danger" id="akt_global_cl" value="{{ $sum_cl > 0 ? $sum_cl : '' }}" onkeyup="hitungKalkulator('global')" onchange="hitungKalkulator('global')"></div>
-                </div>
-            </div>
-        </div>
         <div class="card shadow-sm border-secondary mb-5">
             <div class="card-header bg-secondary text-white fw-bold d-flex justify-content-between align-items-center">
-                <span>📦 TRACKING: DAFTAR ROLL KERTAS TERPAKAI PADA SHIFT INI</span>
-                <span class="badge bg-light text-dark">Data Laporan Forklift</span>
+                <span>📦 TRACKING & ANOMALI ROLL SHIFT INI</span>
+                <span class="badge bg-light text-dark">Data Forklift vs Form SPK</span>
             </div>
             <div class="card-body bg-white p-0">
-                @php
-                    // Tarik data roll langsung berdasarkan shift_id yang tersimpan di sesi ini
-                    $transaksiRolls = \App\Models\TransaksiRoll::with('masterKertas')
-                        ->where('shift_id', $kalkulasi->shift_id)
-                        ->get();
-                @endphp
-
                 @if($transaksiRolls->isEmpty())
                     <div class="p-4 text-center text-muted">
                         <em>Belum ada data roll kertas yang dicatat oleh Forklift untuk Shift ini.</em>
                     </div>
                 @else
                     <div class="table-responsive">
-                        <table class="table table-hover table-striped mb-0 align-middle text-center" style="font-size: 0.9rem;">
+                        <table class="table table-hover mb-0 align-middle text-center" style="font-size: 0.85rem;">
                             <thead class="table-light text-secondary">
                                 <tr>
-                                    <th width="5%">No</th>
-                                    <th width="15%">No. Roll</th>
-                                    <th width="15%">Posisi Mesin</th>
-                                    <th width="10%">Gramatur</th>
-                                    <th width="10%">Lebar (cm)</th>
-                                    <th width="15%">Berat Awal</th>
-                                    <th width="15%">Sisa Akhir</th>
-                                    <th width="15%" class="text-danger">Total Terpakai</th>
+                                    <th width="4%">No</th>
+                                    <th width="12%">No. Roll</th>
+                                    <th width="8%">Posisi</th>
+                                    <th width="8%">GSM</th>
+                                    <th width="8%">Lebar</th>
+                                    <th width="9%">B. Awal</th>
+                                    <th width="9%">Sisa</th>
+                                    <th width="10%" class="text-danger">Terpakai</th>
+                                    <th width="16%" class="text-primary text-start">📌 Digunakan Di (SPK)</th>
+                                    <th width="16%" class="text-warning text-start">⚠️ Status / Anomali</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -348,28 +383,86 @@
                                 @endphp
                                 @foreach($transaksiRolls as $index => $roll)
                                     @php
+                                        $list_spk = $pemakaian_roll_di_spk[$roll->id] ?? [];
+                                        $text_spk = count($list_spk) > 0 ? implode('<hr class="my-1 border-secondary">', array_unique($list_spk)) : '<span class="text-muted fst-italic">Tidak ada</span>';
+
+                                        $rowClass = '';
+                                        $isSlash = false;
+                                        $isBelumPakai = false;
+                                        $isDiMesin = false;
+                                        $isNyasar = false;
+                                        
                                         $awal = floatval($roll->sisa_kilo_awal);
-                                        $akhir = floatval($roll->sisa_kilo_akhir);
-                                        // Rumus ludes: kalau akhir 0, berarti kepakai semua (awal)
-                                        $pakai = ($akhir <= 0) ? $awal : ($awal - $akhir);
+                                        $akhirRaw = $roll->sisa_kilo_akhir;
+                                        $isDiMesin = ($akhirRaw === null || $akhirRaw === '');
+                                        
+                                        if($isDiMesin) {
+                                            $pakai = 0;
+                                            $akhirText = '<span class="badge bg-warning text-dark">Belum Balik</span>';
+                                        } else {
+                                            $akhir = floatval($akhirRaw);
+                                            $pakai = ($akhir <= 0) ? $awal : ($awal - $akhir);
+                                            if($pakai < 0) $pakai = 0;
+                                            
+                                            $akhirText = ($akhir <= 0) ? 'Habis (0)' : number_format($akhir, 2) . ' Kg';
+                                            if($pakai == 0) $isBelumPakai = true;
+                                            if($pakai > 0 && count($list_spk) == 0) $isNyasar = true;
+                                        }
                                         $grandTotalPakai += $pakai;
+
+                                        $r_lebar = floatval($roll->masterKertas->lebar ?? 0);
+                                        $r_lebar_cm = $r_lebar > 500 ? ($r_lebar / 10) : $r_lebar;
+                                        if(!in_array($r_lebar_cm, $listLebarSpk)) {
+                                            $isSlash = true;
+                                        }
+
+                                        if($isSlash || $isBelumPakai || $isNyasar) {
+                                            $rowClass = 'row-danger';
+                                        } elseif($isDiMesin) {
+                                            $rowClass = 'row-warning';
+                                        }
                                     @endphp
-                                    <tr>
+                                    
+                                    <tr class="{{ $rowClass }}">
                                         <td class="fw-bold text-muted">{{ $index + 1 }}</td>
                                         <td class="fw-bold">{{ $roll->no_roll ?? '-' }}</td>
                                         <td><span class="badge bg-dark">{{ strtoupper($roll->posisi_mesin) }}</span></td>
                                         <td class="fw-bold">{{ $roll->masterKertas->gsm ?? '-' }}</td>
-                                        <td class="fw-bold">{{ $roll->masterKertas->lebar ?? '-' }}</td>
-                                        <td class="text-secondary">{{ number_format($awal, 2) }} Kg</td>
-                                        <td class="text-secondary">{{ $akhir <= 0 ? 'Habis (0)' : number_format($akhir, 2) . ' Kg' }}</td>
+                                        <td class="fw-bold">{{ $roll->masterKertas->lebar ?? '-' }} cm</td>
+                                        <td class="text-secondary">{{ number_format($awal, 2) }}</td>
+                                        <td class="text-secondary">{!! $akhirText !!}</td>
                                         <td class="fw-bold text-danger">{{ number_format($pakai, 2) }} Kg</td>
+                                        
+                                        <td class="text-start fw-bold text-primary" style="line-height: 1.2;">
+                                            {!! $text_spk !!}
+                                        </td>
+
+                                        <td class="text-start" style="font-size: 0.75rem; line-height: 1.5;">
+                                            @if($isDiMesin)
+                                                <span class="badge bg-warning text-dark mb-1">⏳ Masih Di Mesin</span><br>
+                                            @elseif($isBelumPakai)
+                                                <span class="badge bg-danger mb-1">⚠️ Sisa Utuh (Batal Pakai)</span><br>
+                                            @endif
+
+                                            @if($isNyasar)
+                                                <span class="badge bg-danger mb-1">⚠️ Terpakai tapi Nyasar (Loss/Gagal masuk Form SPK)</span><br>
+                                            @endif
+
+                                            @if($isSlash)
+                                                <span class="badge bg-danger mb-1">⚠️ Beda Ukuran SPK (Slash)</span><br>
+                                            @endif
+                                            
+                                            @if(!$isDiMesin && !$isBelumPakai && !$isSlash && !$isNyasar)
+                                                <span class="badge bg-success">✔️ Normal (Cocok)</span>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
                             <tfoot class="table-secondary fw-bold text-danger">
                                 <tr>
                                     <td colspan="7" class="text-end">GRAND TOTAL KERTAS DIPROSES SHIFT INI :</td>
-                                    <td>{{ number_format($grandTotalPakai, 2) }} Kg</td>
+                                    <td colspan="3" class="text-start ms-2">{{ number_format($grandTotalPakai, 2) }} Kg</td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -393,25 +486,82 @@
         });
     }
 
-    // FUNGSI BARU: Jika admin mengetik langsung di kolom aktual kecil per posisi roll
+    // --- LOGIKA BARU: Cek Selisih Total SPK & Selisih Per Posisi Roll ---
+    function cekWarningSelisih(card) {
+        // 1. Validasi Skala Makro (Total SPK Card)
+        let totalTeori = parseFloat(card.querySelector('.total-teori-card').value) || 0;
+        let totalAktual = parseFloat(card.querySelector('.total-aktual-card').value) || 0;
+        let alertBlok = card.querySelector('.warning-selisih-val');
+        
+        if (alertBlok) {
+            if (totalTeori > 0 && totalAktual > 0) {
+                let selisihPersen = (Math.abs(totalAktual - totalTeori) / totalTeori) * 100;
+                if (selisihPersen > 15) {
+                    alertBlok.classList.remove('d-none');
+                    card.querySelector('.txt-persen-selisih').innerText = selisihPersen.toFixed(1);
+                    card.querySelector('.txt-teori-val').innerText = totalTeori.toFixed(2);
+                    card.querySelector('.txt-aktual-val').innerText = totalAktual.toFixed(2);
+                } else {
+                    alertBlok.classList.add('d-none');
+                }
+            } else {
+                alertBlok.classList.add('d-none');
+            }
+        }
+
+        // 2. Validasi Skala Mikro (Per Posisi Roll: DB, BM, BL, CM, CL)
+        let posisiRolls = ['db', 'bm', 'bl', 'cm', 'cl'];
+        posisiRolls.forEach(pos => {
+            let tVal = parseFloat(card.querySelector('.kg-' + pos).value) || 0;
+            let aVal = parseFloat(card.querySelector('.akt-' + pos).value) || 0;
+            let warnEl = card.querySelector('.warn-pos-' + pos);
+            let inputEl = card.querySelector('.akt-' + pos);
+
+            if (warnEl) {
+                let isAnomaly = false;
+                let pesanWarning = "";
+
+                if (tVal > 0 && aVal > 0) {
+                    let diff = (Math.abs(aVal - tVal) / tVal) * 100;
+                    if (diff > 15) { // Batas toleransi per item 15%
+                        isAnomaly = true;
+                        pesanWarning = `⚠️ Selisih ${diff.toFixed(0)}%`;
+                    }
+                } else if (tVal === 0 && aVal > 0) {
+                    // Proteksi Fatal: Di sistem teorinya 0 Kg (kertas tidak dipakai), tapi operator malah isi aktual beratnya!
+                    isAnomaly = true;
+                    pesanWarning = "⚠️ Salah Kolom!";
+                }
+
+                // Tampilkan efek error jika terdeteksi anomali data
+                if (isAnomaly) {
+                    warnEl.classList.remove('d-none');
+                    warnEl.innerText = pesanWarning;
+                    inputEl.style.setProperty('border-color', '#dc3545', 'important'); // Kasih border merah menyala di inputnya
+                } else {
+                    warnEl.classList.add('d-none');
+                    warnEl.innerText = "";
+                    inputEl.style.setProperty('border-color', '#feb2b2', 'important'); // Kembalikan ke warna soft default
+                }
+            }
+        });
+    }
+
+    // Jika admin mengetik langsung di kolom aktual kecil per posisi roll
     function hitungManualCard(input) {
         let card = input.closest('.spk-card');
         
         let aDB = parseFloat(card.querySelector('.akt-db').value) || 0;
-        let aBM = parseFloat(card.querySelector('.akt-db').value) || 0; // typo fix to accurate elements
+        let aBM = parseFloat(card.querySelector('.akt-bm').value) || 0;
         let aBL = parseFloat(card.querySelector('.akt-bl').value) || 0;
         let aCM = parseFloat(card.querySelector('.akt-cm').value) || 0;
         let aCL = parseFloat(card.querySelector('.akt-cl').value) || 0;
-        
-        // Re-read correct references
-        aDB = parseFloat(card.querySelector('.akt-db').value) || 0;
-        aBM = parseFloat(card.querySelector('.akt-bm').value) || 0;
-        aBL = parseFloat(card.querySelector('.akt-bl').value) || 0;
-        aCM = parseFloat(card.querySelector('.akt-cm').value) || 0;
-        aCL = parseFloat(card.querySelector('.akt-cl').value) || 0;
 
         let totalCard = aDB + aBM + aBL + aCM + aCL;
         card.querySelector('.total-aktual-card').value = totalCard.toFixed(2);
+        
+        // Jalankan deteksi warning real-time untuk card ini
+        cekWarningSelisih(card);
         
         // Update total global di form bawah agar angkanya sinkron
         updateGlobalSump();
@@ -436,11 +586,12 @@
     function floatInputClean(val) {
         return parseFloat(val) || 0;
     }
-// Fungsi baru untuk membelah garis miring dan membuang huruf
+
+    // Fungsi membelah garis miring dan membuang huruf
     function getGsmBersih(val) {
         if (!val) return 0;
-        let kiriSaja = val.toString().split('/')[0]; // Ambil yang kiri saja (sebelum garis miring)
-        return parseFloat(kiriSaja.replace(/[^0-9]/g, '')) || 0; // Baru buang hurufnya
+        let kiriSaja = val.toString().split('/')[0];
+        return parseFloat(kiriSaja.replace(/[^0-9]/g, '')) || 0;
     }
 
     function hitungKalkulator(triggerType = 'normal') {
@@ -458,7 +609,6 @@
             let fBM = parseFloat(card.querySelector('.input-faktor-bm').value) || 1.36;
             let fCM = parseFloat(card.querySelector('.input-faktor-cm').value) || 1.46;
 
-            // BUG FIX: Gunakan fungsi getGsmBersih() agar slash '/' tidak bikin error 82 Ton!
             let gDB = getGsmBersih(card.querySelector('.input-db').value);
             let gBM = getGsmBersih(card.querySelector('.input-bm').value);
             let gBL = getGsmBersih(card.querySelector('.input-bl').value);
@@ -501,7 +651,6 @@
                 let panjangM = parseFloat(card.querySelector('.input-panjang').value) || 0;
                 let rasio = totalMeterAll > 0 ? (panjangM / totalMeterAll) : 0;
 
-                // Gunakan gsm bersih juga di sini untuk deteksi pemakaian posisi roll
                 let gDB = parseFloat(card.querySelector('.input-db').value.replace(/[^0-9]/g, '')) || 0;
                 let gBM = parseFloat(card.querySelector('.input-bm').value.replace(/[^0-9]/g, '')) || 0;
                 let gBL = parseFloat(card.querySelector('.input-bl').value.replace(/[^0-9]/g, '')) || 0;
@@ -524,6 +673,11 @@
                 card.querySelector('.total-aktual-card').value = totalActualCard.toFixed(2);
             });
         }
+
+        // 3. JALANKAN VALIDASI WARNING (TOTAL & DETAIL PER POSISI)
+        cards.forEach(card => {
+            cekWarningSelisih(card);
+        });
     }
 
     function simpanData() {
@@ -576,7 +730,6 @@
     function reRunSapuJagat() {
         let form = document.getElementById('form-spk-multi');
         if (form.reportValidity()) {
-            // Belokkan action form ke rute re-run otomatis
             form.action = "{{ url('/hitung-spk/sapujagat/re-run/' . $kalkulasi->id) }}";
             form.submit();
         }

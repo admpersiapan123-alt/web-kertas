@@ -191,7 +191,12 @@
                     <td>{{ $t->posisi_mesin == 'CM' ? $t->sisa_kilo_awal : '' }}</td>
                     <td>{{ $t->posisi_mesin == 'CL' ? $t->sisa_kilo_awal : '' }}</td>
                     
-                    <td></td> 
+                    <td>
+                        @if(isset($t->sisa_kilo_akhir) && is_numeric($t->sisa_kilo_awal) && is_numeric($t->sisa_kilo_akhir))
+                            {{ $t->sisa_kilo_awal - $t->sisa_kilo_akhir }}
+                        @endif
+                    </td> 
+                    
                     <td>{{ $t->sisa_kilo_akhir ?? '' }}</td> 
                 </tr>
                 @endforeach
@@ -218,5 +223,11 @@
             <h3>BELUM ADA TRANSAKSI DI SHIFT INI</h3>
         </div>
     @endforelse
+
+    <script>
+        window.onload = function() {
+            window.print();
+        }
+    </script>
 </body>
 </html>

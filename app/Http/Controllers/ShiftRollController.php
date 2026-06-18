@@ -156,15 +156,45 @@ class ShiftRollController extends Controller
     {
         $shift = Shift::findOrFail($id);
         
-        $transaksi = TransaksiRoll::with('masterKertas')
+        // 1. Ambil data mentah urut secara kronologis (waktu scan) terlebih dahulu
+        $transaksiRaw = TransaksiRoll::with('masterKertas')
                         ->where('shift_id', $id)
+                        ->orderBy('waktu_ambil', 'asc')
                         ->get();
 
-        $transaksi = $transaksi->sortBy([
-            ['masterKertas.lebar', 'desc'],
-            ['waktu_ambil', 'asc'],
+        // Variabel pembantu untuk mendeteksi siklus jalan mesin
+        $currentGroup = 1;
+        $lastLebar = 99999; // Angka patokan awal dibuat sangat besar
+
+        // 2. Looping untuk membaca alur kerja supir
+        foreach ($transaksiRaw as $t) {
+            // Ambil angka lebar kertas (jika kosong anggap 0)
+            $lebar = floatval($t->masterKertas->lebar ?? 0);
+            
+            // LOGIKA PABRIK: 
+            // Jika ukuran kertas tiba-tiba NAIK dari sebelumnya (misal 95 loncat ke 180),
+            // Berarti ini adalah Siklus / Jadwal jalan yang baru.
+            if ($lebar > $lastLebar) {
+                $currentGroup++; // Buat kelompok baru di bawahnya
+            }
+            
+            // Tempelkan nomor kelompok ke data transaksi ini
+            $t->siklus_grup = $currentGroup;
+            
+            // Update patokan lebar terakhir (abaikan jika lebar 0 agar tidak merusak urutan)
+            if ($lebar > 0) {
+                $lastLebar = $lebar;
+            }
+        }
+
+        // 3. Lakukan pengurutan (Sorting) bertingkat yang pintar
+        $transaksi = $transaksiRaw->sortBy([
+            ['siklus_grup', 'asc'],         // Tahap 1: Urutkan berdasarkan kelompok siklus (yang baru di bawah)
+            ['masterKertas.lebar', 'desc'], // Tahap 2: Dalam kelompok yang sama, urutkan LEBAR TERBESAR di atas
+            ['waktu_ambil', 'asc'],         // Tahap 3: Jika lebarnya sama persis, urutkan dari yang di-scan duluan
         ])->values(); 
 
+        // Pastikan nama view Anda benar, sebelumnya Anda pakai 'shift.print' atau 'kertas.print'
         return view('shift.print', compact('shift', 'transaksi'));
     }
 }

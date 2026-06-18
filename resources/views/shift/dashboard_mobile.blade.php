@@ -130,7 +130,7 @@
                 <div class="card-header bg-secondary text-white text-center p-2 fw-bold border-0" style="font-size:13px;">INPUT MANUAL (JIKA LABEL RUSAK)</div>
                 <div class="card-body p-3 bg-white">
                     <input type="text" id="manual_no_roll" class="form-control form-control-lg mb-2 text-center" placeholder="KODE ROLL...">
-                    <input type="text" id="manual_keterangan" class="form-control form-control-lg mb-3 text-center" placeholder="ALASAN RUSAK...">
+                    <!-- <input type="text" id="manual_keterangan" class="form-control form-control-lg mb-3 text-center" placeholder="ALASAN RUSAK..."> -->
                     <button class="btn btn-primary w-100 btn-mobile shadow-sm" onclick="submitManual()">KIRIM MANUAL</button>
                 </div>
             </div>
@@ -357,7 +357,31 @@
     function startScanner() {
         if(document.getElementById('reader')) {
             html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
-                fps: 15, qrbox: { width: 250, height: 150 }, rememberLastUsedCamera: true
+                fps: 10,
+                rememberLastUsedCamera: true,
+                
+                // 1. Buat kotak scan memanjang (Landscape) khusus untuk Barcode 1D.
+                // Ini membantu algoritma membuang background yang tidak perlu dan fokus ke garis barcode.
+                qrbox: { width: 300, height: 120 },
+                
+                // 2. PAKSA iOS MENGGUNAKAN RESOLUSI TINGGI
+                // Tanpa ini, iOS sering memberi resolusi buram ke browser
+                videoConstraints: {
+                    facingMode: "environment", // Paksa kamera belakang
+                    width: { ideal: 1280 },    // Resolusi HD minimal
+                    height: { ideal: 720 },
+                    // advanced: [{ focusMode: "continuous" }] // Opsional: Coba paksa autofocus (hanya jalan di beberapa versi iOS terbaru)
+                },
+
+                // 3. SPESIFIKKAN FORMAT (SANGAT PENTING)
+                // Barcode pabrik/roll kertas biasanya menggunakan Code 128, Code 39, atau EAN.
+                // Dengan membatasi pencarian, HP tidak akan nge-lag karena mencoba mencari QR Code/PDF417.
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.QR_CODE // Sisakan QR Code jika sewaktu-waktu labelnya pakai QR
+                ]
             });
             html5QrcodeScanner.render(onScanSuccess);
         }
@@ -368,12 +392,12 @@
     // Manual Logic
     function submitManual() {
         let noRoll = document.getElementById('manual_no_roll').value.trim();
-        let ket = document.getElementById('manual_keterangan').value.trim();
-        if(!noRoll || !ket) { 
+        // let ket = document.getElementById('manual_keterangan').value.trim();
+        if(!noRoll) { 
             Swal.fire({ icon: 'warning', title: 'DATA KOSONG!', text: 'Isi Kode Roll dan Alasan!', confirmButtonText: 'OKE', confirmButtonColor: '#ffc107' });
             return; 
         }
-        kirimDataRoll(noRoll, 'manual', ket);
+        kirimDataRoll(noRoll, 'manual');
     }
 
     function bukaRevisi(id) {
