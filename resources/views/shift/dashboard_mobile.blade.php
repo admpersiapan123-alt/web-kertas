@@ -91,6 +91,14 @@
     <div style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">{{ mb_strtoupper($shift->kepala_shift) }}</div>
     <div class="text-warning fw-bold" style="font-size: 13px;">{{ date('d M Y', strtotime($shift->tanggal)) }}</div>
 </div>
+<div class="bg-success text-white p-3 text-center shadow-sm d-flex justify-content-between align-items-center">
+    <a href="{{ url('/shift') }}" class="btn btn-sm btn-dark fw-bold">⬅ KEMBALI</a>
+    <div>
+        <div style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">V3 - {{ mb_strtoupper($shift->kepala_shift) }}</div>
+        <div class="text-warning fw-bold" style="font-size: 13px;">{{ date('d M Y', strtotime($shift->tanggal)) }}</div>
+    </div>
+    <div style="width: 70px;"></div>
+</div>
 
 <ul class="nav nav-tabs sticky-top shadow-sm" id="mobileTab" role="tablist">
     <li class="nav-item" role="presentation">
@@ -130,7 +138,6 @@
                 <div class="card-header bg-secondary text-white text-center p-2 fw-bold border-0" style="font-size:13px;">INPUT MANUAL (JIKA LABEL RUSAK)</div>
                 <div class="card-body p-3 bg-white">
                     <input type="text" id="manual_no_roll" class="form-control form-control-lg mb-2 text-center" placeholder="KODE ROLL...">
-                    <!-- <input type="text" id="manual_keterangan" class="form-control form-control-lg mb-3 text-center" placeholder="ALASAN RUSAK..."> -->
                     <button class="btn btn-primary w-100 btn-mobile shadow-sm" onclick="submitManual()">KIRIM MANUAL</button>
                 </div>
             </div>
@@ -140,7 +147,6 @@
     <div class="tab-pane fade" id="list-content" role="tabpanel">
     
     <div class="d-flex flex-column gap-2 mb-3">
-        
         <div class="input-group shadow-sm">
             <span class="input-group-text bg-white border-dark font-weight-bold">🔢</span>
             <input type="text" id="cari_roll" class="form-control form-control-lg border-dark fw-bold" placeholder="KETIK NO ROLL DI SINI..." onkeyup="filterDanCariRoll()" style="height:55px; font-size: 16px;">
@@ -198,20 +204,46 @@
                     <span class="badge bg-success px-3 py-2">Lbr: {{ $t->masterKertas->lebar ?? '-' }}</span>
                 </div>
 
+                @php $currentPos = explode(' ', trim($t->posisi_mesin))[0] ?? ''; @endphp
+
                 @if($t->status == 'diambil' && $shift->status == 'aktif')
-                    <div class="d-flex gap-2 mt-2">
-                        <form action="{{ url('/shift/batal-roll/'.$t->id) }}" method="POST" onsubmit="return confirm('YAKIN HAPUS ROLL INI DARI DAFTAR?');">
+                    <div class="mt-2">
+
+                        <form action="{{ url('/shift/kembali-roll/'.$t->id) }}" method="POST">
                             @csrf
-                            <button type="submit" class="btn btn-outline-danger fw-bold shadow-sm" style="height: 55px; width: 60px;">❌</button>
-                        </form>
-                        
-                        <form action="{{ url('/shift/kembali-roll/'.$t->id) }}" method="POST" class="flex-grow-1">
-                            @csrf
-                            <div class="input-group shadow-sm">
-                                <input type="number" step="0.01" name="sisa_kilo_akhir" class="form-control text-center fw-bold border-secondary" placeholder="SISA KG" style="height: 55px; font-size: 16px;" required>
-                                <button type="submit" class="btn btn-success fw-bold px-3" style="height: 55px;">SIMPAN</button>
+                            <input type="hidden" name="posisi_mesin" value="{{ $currentPos }}">
+                            <label class="fw-bold text-success mb-1" style="font-size:12px;">⬇️ INPUT SISA KG JIKA ROLL SELESAI / KEMBALI:</label>
+                            <div class="row g-2 mb-2">
+                                <div class="col-12">
+                                    <input type="number" step="0.01" name="sisa_kilo_akhir" class="form-control text-center fw-bold border-success shadow-sm" placeholder="MASUKKAN SISA KG..." style="height: 55px; font-size: 16px;" required>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" onclick="if(confirm('YAKIN HAPUS ROLL INI DARI DAFTAR?')) { document.getElementById('hapus-roll-{{$t->id}}').submit(); }" class="btn btn-outline-danger fw-bold shadow-sm" style="height: 50px; width: 60px;">❌</button>
+                                <button type="submit" class="btn btn-success fw-bold flex-grow-1 shadow-sm" style="height: 50px;">💾 ROLL KEMBALI</button>
                             </div>
                         </form>
+                        <form id="hapus-roll-{{$t->id}}" action="{{ url('/shift/batal-roll/'.$t->id) }}" method="POST" class="d-none">
+                            @csrf
+                        </form>
+
+                        <hr class="my-3" style="border-top: 2px dashed #dee2e6;">
+
+                        <form action="{{ url('/shift/ubah-posisi/'.$t->id) }}" method="POST" class="mb-3">
+                            @csrf
+                            <label class="fw-bold text-primary mb-1" style="font-size:12px;">🔄 UBAH POSISI MESIN:</label>
+                            <div class="input-group shadow-sm">
+                                <select name="posisi_mesin" class="form-select text-center fw-bold border-primary shadow-sm" style="height: 50px; font-size: 14px;" required>
+                                    <option value="DB" {{ $currentPos == 'DB' ? 'selected' : '' }}>DB (Double Backer)</option>
+                                    <option value="BM" {{ $currentPos == 'BM' ? 'selected' : '' }}>BM (Gelombang BF)</option>
+                                    <option value="BL" {{ $currentPos == 'BL' ? 'selected' : '' }}>BL (Lapisan BF)</option>
+                                    <option value="CM" {{ $currentPos == 'CM' ? 'selected' : '' }}>CM (Gelombang CF)</option>
+                                    <option value="CL" {{ $currentPos == 'CL' ? 'selected' : '' }}>CL (Lapisan CF)</option>
+                                </select>
+                                <button type="submit" class="btn btn-primary fw-bold px-3">SIMPAN</button>
+                            </div>
+                        </form>
+                        
                     </div>
 
                 @else
@@ -228,18 +260,31 @@
                     </div>
 
                     <div id="form-revisi-{{ $t->id }}" class="mt-2 d-none">
-                        <form action="{{ url('/shift/kembali-roll/'.$t->id) }}" method="POST" class="d-flex gap-2 mb-2">
+                        <form action="{{ url('/shift/kembali-roll/'.$t->id) }}" method="POST" class="mb-2">
                             @csrf
-                            <input type="number" step="0.01" name="sisa_kilo_akhir" class="form-control text-center fw-bold border-warning" value="{{ $t->sisa_kilo_akhir }}" style="height: 50px; font-size: 16px;" required>
-                            <button type="submit" class="btn btn-warning fw-bold px-3 text-dark" style="height: 50px;">UPDATE</button>
+                            <div class="row g-2 mb-2">
+                                <div class="col-5">
+                                    <select name="posisi_mesin" class="form-select text-center fw-bold border-warning shadow-sm" style="height: 50px; font-size: 15px;" required>
+                                        <option value="DB" {{ $currentPos == 'DB' ? 'selected' : '' }}>DB (Double Backer)</option>
+                                        <option value="BM" {{ $currentPos == 'BM' ? 'selected' : '' }}>BM (Gelombang BF)</option>
+                                        <option value="BL" {{ $currentPos == 'BL' ? 'selected' : '' }}>BL (Lapisan BF)</option>
+                                        <option value="CM" {{ $currentPos == 'CM' ? 'selected' : '' }}>CM (Gelombang CF)</option>
+                                        <option value="CL" {{ $currentPos == 'CL' ? 'selected' : '' }}>CL (Lapisan CF)</option>
+                                    </select>
+                                </div>
+                                <div class="col-7">
+                                    <input type="number" step="0.01" name="sisa_kilo_akhir" class="form-control text-center fw-bold border-warning shadow-sm" value="{{ $t->sisa_kilo_akhir }}" style="height: 50px; font-size: 16px;" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-warning w-100 fw-bold text-dark shadow-sm mb-2" style="height: 50px;">💾 UPDATE DATA</button>
                         </form>
                         
                         <div class="d-flex justify-content-between gap-2">
-                            <button type="button" class="btn btn-secondary fw-bold flex-grow-1" onclick="tutupRevisi({{ $t->id }})">BATAL UBAH</button>
+                            <button type="button" class="btn btn-secondary fw-bold flex-grow-1 shadow-sm" onclick="tutupRevisi({{ $t->id }})">BATAL UBAH</button>
                             
                             <form action="{{ url('/shift/batal-roll/'.$t->id) }}" method="POST" onsubmit="return confirm('HAPUS ROLL INI KARENA SALAH INPUT KODE?');">
                                 @csrf
-                                <button type="submit" class="btn btn-danger fw-bold px-3">🗑️ HAPUS ROLL</button>
+                                <button type="submit" class="btn btn-danger fw-bold px-3 shadow-sm">🗑️ HAPUS ROLL</button>
                             </form>
                         </div>
                     </div>
@@ -263,6 +308,7 @@
     const idShift = "{{ $shift->id }}";
 
     // Fungsi Filter
+    // ... (Logika JavaScript tetap sama seperti sebelumnya)
     function filterDanCariRoll() {
         let filterPosisi = document.getElementById('filter_posisi').value;
         let kataKunci = document.getElementById('cari_roll').value.toLowerCase().trim();
@@ -273,7 +319,6 @@
             let posisi = roll.getAttribute('data-posisi');
             let noRoll = roll.getAttribute('data-noroll');
             
-            // Cek apakah posisi mesin cocok AND nomor roll mengandung kata kunci yang diketik
             let cocokPosisi = (filterPosisi === 'ALL' || posisi.startsWith(filterPosisi));
             let cocokNoRoll = (kataKunci === '' || noRoll.includes(kataKunci));
             
@@ -359,28 +404,17 @@
             html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
                 fps: 10,
                 rememberLastUsedCamera: true,
-                
-                // 1. Buat kotak scan memanjang (Landscape) khusus untuk Barcode 1D.
-                // Ini membantu algoritma membuang background yang tidak perlu dan fokus ke garis barcode.
                 qrbox: { width: 300, height: 120 },
-                
-                // 2. PAKSA iOS MENGGUNAKAN RESOLUSI TINGGI
-                // Tanpa ini, iOS sering memberi resolusi buram ke browser
                 videoConstraints: {
-                    facingMode: "environment", // Paksa kamera belakang
-                    width: { ideal: 1280 },    // Resolusi HD minimal
+                    facingMode: "environment",
+                    width: { ideal: 1280 },
                     height: { ideal: 720 },
-                    // advanced: [{ focusMode: "continuous" }] // Opsional: Coba paksa autofocus (hanya jalan di beberapa versi iOS terbaru)
                 },
-
-                // 3. SPESIFIKKAN FORMAT (SANGAT PENTING)
-                // Barcode pabrik/roll kertas biasanya menggunakan Code 128, Code 39, atau EAN.
-                // Dengan membatasi pencarian, HP tidak akan nge-lag karena mencoba mencari QR Code/PDF417.
                 formatsToSupport: [
                     Html5QrcodeSupportedFormats.CODE_128,
                     Html5QrcodeSupportedFormats.CODE_39,
                     Html5QrcodeSupportedFormats.EAN_13,
-                    Html5QrcodeSupportedFormats.QR_CODE // Sisakan QR Code jika sewaktu-waktu labelnya pakai QR
+                    Html5QrcodeSupportedFormats.QR_CODE
                 ]
             });
             html5QrcodeScanner.render(onScanSuccess);
@@ -392,7 +426,6 @@
     // Manual Logic
     function submitManual() {
         let noRoll = document.getElementById('manual_no_roll').value.trim();
-        // let ket = document.getElementById('manual_keterangan').value.trim();
         if(!noRoll) { 
             Swal.fire({ icon: 'warning', title: 'DATA KOSONG!', text: 'Isi Kode Roll dan Alasan!', confirmButtonText: 'OKE', confirmButtonColor: '#ffc107' });
             return; 
@@ -401,8 +434,8 @@
     }
 
     function bukaRevisi(id) {
-    document.getElementById('view-selesai-' + id).classList.add('d-none');
-    document.getElementById('form-revisi-' + id).classList.remove('d-none');
+        document.getElementById('view-selesai-' + id).classList.add('d-none');
+        document.getElementById('form-revisi-' + id).classList.remove('d-none');
     }
 
     function tutupRevisi(id) {

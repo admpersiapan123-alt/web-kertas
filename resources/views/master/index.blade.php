@@ -15,30 +15,41 @@
                 ⬅️ KEMBALI
             </a>
             <h2 class="mb-0 fw-bold">Laporan Stock Kertas</h2>
-            <a href="{{ url('/scan') }}" class="btn btn-success fw-bold shadow-sm">
-                📷 SCAN BARCODE
-            </a>
-            <a href="{{ url('/stock-kertas/import') }}" class="btn btn-primary fw-bold shadow-sm">
-                📥 IMPORT CSV
-            </a>
+            <div class="d-flex gap-2">
+                <a href="{{ url('/scan') }}" class="btn btn-success fw-bold shadow-sm">
+                    📷 SCAN BARCODE
+                </a>
+                <a href="{{ url('/stock-kertas/import') }}" class="btn btn-primary fw-bold shadow-sm">
+                    📥 IMPORT CSV
+                </a>
+            </div>
         </div>
 
-        <div class="row mb-3">
-            <div class="col-md-6">
+        <div class="row mb-4">
+            <div class="col-12">
                 <form action="{{ url('/search') }}" method="GET">
                     <div class="input-group shadow-sm">
                         <input type="text" name="search" class="form-control form-control-lg border-primary" 
                                placeholder="Cari Nomor Roll..." 
-                               value="{{ $search ?? '' }}">
+                               value="{{ request('search', $search ?? '') }}">
+                        
+                        <input type="text" name="gsm" class="form-control form-control-lg border-primary" 
+                               placeholder="Cari GSM..." 
+                               value="{{ request('gsm', $gsm ?? '') }}">
+                        
+                        <input type="text" name="lebar" class="form-control form-control-lg border-primary" 
+                               placeholder="Cari Lebar..." 
+                               value="{{ request('lebar', $lebar ?? '') }}">
+                        
                         <button class="btn btn-primary fw-bold px-4" type="submit">🔍 CARI</button>
-                        @if(!empty($search))
-                            <a href="{{ url('/search') }}" class="btn btn-danger fw-bold d-flex align-items-center">✖ RESET</a>
+                        
+                        @if(request('search') || request('gsm') || request('lebar'))
+                            <a href="{{ url('/search') }}" class="btn btn-danger fw-bold d-flex align-items-center px-3">✖ RESET</a>
                         @endif
                     </div>
                 </form>
             </div>
         </div>
-
         <div class="card shadow-sm border-0">
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -60,7 +71,13 @@
                         <tbody class="text-center align-middle">
                             @forelse ($data_kertas as $index => $kertas)
                             <tr>
-                                <td>{{ $data_kertas->firstItem() + $index }}</td>
+                                <td>
+                                    @if($data_kertas instanceof \Illuminate\Pagination\LengthAwarePaginator)
+                                        {{ $data_kertas->firstItem() + $index }}
+                                    @else
+                                        {{ $loop->iteration }}
+                                    @endif
+                                </td>
                                 <td>{{ $kertas->jenis }}</td>
                                 <td>{{ $kertas->gsm }}</td>
                                 <td>{{ $kertas->lebar }}</td>
@@ -74,7 +91,7 @@
                             @empty
                             <tr>
                                 <td colspan="10" class="text-danger py-4 fs-5">
-                                    Data Nomor Roll <strong>"{{ $search }}"</strong> tidak ditemukan.
+                                    Data dengan filter tersebut tidak ditemukan.
                                 </td>
                             </tr>
                             @endforelse
@@ -84,9 +101,11 @@
             </div>
         </div>
 
+        @if($data_kertas instanceof \Illuminate\Pagination\LengthAwarePaginator)
         <div class="d-flex justify-content-end mt-4">
-            {{ $data_kertas->links() }}
+            {{ $data_kertas->appends(request()->query())->links() }}
         </div>
+        @endif
         
     </div>
 

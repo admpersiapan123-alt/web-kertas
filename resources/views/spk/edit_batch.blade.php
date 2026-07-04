@@ -331,7 +331,27 @@
             @endforeach
             
         </div>
-        
+        <div class="card shadow-sm border-primary mb-4 mx-auto" style="border-width: 2px; border-style: dashed; max-width: 100%;">
+            <div class="card-body bg-light">
+                <h6 class="fw-bold text-primary mb-3">🧠 TAMBAH SPK CEPAT VIA AI (Paste JSON)</h6>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="small fw-bold text-dark">1. Salin Prompt Ini & Buka ChatGPT:</label>
+                        <div class="input-group input-group-sm mb-2 shadow-sm">
+                            <textarea id="prompt-chatgpt" class="form-control text-muted" rows="3" readonly style="font-size: 0.75rem;">Kamu sistem OCR corrugator. Aku kasih 2 foto. ATURAN WAJIB: 1. Gabung data berdasar 'Seq'. 2. SPK: Gabung ID & Customer pakai separator ' / ' ke key 'spk'. 3. LEBAR & METER: Buat key 'lebar' (dari Width). Untuk key 'meter', WAJIB AMBIL ANGKA DARI KOLOM 'Total' pada gambar kedua! 4. KERTAS: Pisah sesuai urutan ke key 'db', 'bm', 'bl', 'cm', 'cl'. Kosongkan ("") jika posisi tidak dipakai. 5. KEMBALIKAN HANYA JSON murni array of objects di dalam key 'data'. Tanpa markdown.</textarea>
+                            <button class="btn btn-primary fw-bold" type="button" onclick="copyPrompt()">📋 COPY</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="small fw-bold text-dark">2. Paste Hasil JSON di sini:</label>
+                        <textarea id="input-json-manual" class="form-control form-control-sm mb-2 shadow-sm" rows="3" placeholder='{"data": [{"spk": "123 / BAA", "lebar": 1750, "meter": 2000, ...}]}'></textarea>
+                        <button type="button" class="btn btn-primary btn-sm fw-bold w-100 py-2 shadow-sm" onclick="prosesPasteJSONEdit()">
+                            ⚡ EKSTRAK & TAMBAHKAN SPK KE BAWAH
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="text-center mb-5">
             <button type="button" class="btn btn-outline-primary fw-bold px-5 py-2 shadow-sm" onclick="tambahCardKosong()">➕ TAMBAH SPK KOSONG</button>
         </div>
@@ -682,7 +702,16 @@
 
     function simpanData() {
         let form = document.getElementById('form-spk-multi');
-        if (form.reportValidity()) { form.submit(); }
+        
+        // Cek semua input aktual, jika kosong paksa jadi 0
+        let aktualInputs = document.querySelectorAll('.input-aktual');
+        aktualInputs.forEach(input => {
+            if (input.value.trim() === "") input.value = "0";
+        });
+
+        if (form.reportValidity()) { 
+            form.submit(); 
+        }
     }
 
     function cloneCard(btn) {
@@ -729,10 +758,127 @@
 
     function reRunSapuJagat() {
         let form = document.getElementById('form-spk-multi');
-        if (form.reportValidity()) {
-            form.action = "{{ url('/hitung-spk/sapujagat/re-run/' . $kalkulasi->id) }}";
-            form.submit();
+        
+        // 1. Cek semua input aktual, jika kosong paksa jadi 0 agar backend tidak error
+        let aktualInputs = document.querySelectorAll('.input-aktual');
+        aktualInputs.forEach(input => {
+            if (input.value.trim() === "") input.value = "0";
+        });
+
+        // 2. Bypass validasi bawaan browser (HTML5) khusus untuk fitur Re-Run
+        form.noValidate = true; 
+
+        // 3. Submit ke route re-run
+        form.action = "{{ url('/hitung-spk/sapujagat/re-run/' . $kalkulasi->id) }}";
+        form.submit();
+    }
+
+    function copyPrompt() {
+        let copyText = document.getElementById("prompt-chatgpt");
+        copyText.select();
+        copyText.setSelectionRange(0, 99999); 
+        navigator.clipboard.writeText(copyText.value);
+        alert("✅ Prompt berhasil disalin! Buka ChatGPT, paste teks ini, dan kirim beserta foto.");
+    }
+
+    function prosesPasteJSONEdit() {
+        let jsonString = document.getElementById('input-json-manual').value.trim();
+
+        if (!jsonString) {
+            alert("⚠️ Paste dulu hasil JSON dari ChatGPT di kolom yang disediakan!");
+            return;
         }
+
+        try {
+            // Bersihkan teks (Hapus markdown, dll seperti di halaman otomatis)
+            jsonString = jsonString.replace(/```json/gi, '').replace(/```/g, '');
+            jsonString = jsonString.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+            jsonString = jsonString.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+            const firstBrace = jsonString.indexOf('{');
+            const lastBrace = jsonString.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+            }
+
+            let res = JSON.parse(jsonString);
+            if (Array.isArray(res)) res = { data: res };
+
+            if (!res || !res.data || !Array.isArray(res.data)) {
+                throw new Error("Format harus memiliki property data berupa array");
+            }
+
+            // Looping data dan tambahkan Card satu-satu
+            res.data.forEach(item => {
+                tambahCardDariJSON(item);
+            });
+
+            document.getElementById('input-json-manual').value = '';
+            alert(`✨ Berhasil menambahkan ${res.data.length} SPK baru ke urutan paling bawah!`);
+
+        } catch (e) {
+            console.error("JSON ERROR:", e);
+            alert("❌ Gagal membaca JSON\n\n" + e.message);
+        }
+    }
+
+    function tambahCardDariJSON(data) {
+        // Ambil card pertama sebagai template (blueprint)
+        let cardPertama = document.querySelector('.spk-card');
+        let cardBaru = cardPertama.cloneNode(true);
+
+        // Deteksi key dari AI (antisipasi huruf besar/kecil)
+        let v_spk = data.spk || data.Spk || data.Customer || '';
+        let v_lebar = data.lebar || data.Lebar || data.width || data.Width || '';
+        let v_meter = data.meter || data.Meter || data.length || data.Length || data.panjang || '';
+        let v_db = data.db || data.DB || '';
+        let v_bm = data.bm || data.BM || '';
+        let v_bl = data.bl || data.BL || '';
+        let v_cm = data.cm || data.CM || '';
+        let v_cl = data.cl || data.CL || '';
+
+        // Suntikkan data ke input di dalam card baru
+        cardBaru.querySelector('input[name="no_spk[]"]').value = v_spk;
+        cardBaru.querySelector('.input-lebar').value = v_lebar;
+        cardBaru.querySelector('.input-panjang').value = v_meter;
+        cardBaru.querySelector('.input-db').value = v_db;
+        cardBaru.querySelector('.input-bm').value = v_bm;
+        cardBaru.querySelector('.input-bl').value = v_bl;
+        cardBaru.querySelector('.input-cm').value = v_cm;
+        cardBaru.querySelector('.input-cl').value = v_cl;
+
+        // Kosongkan value kalkulasi dan value aktual (karena ini SPK baru)
+        const fieldsToReset = ['.kg-db', '.kg-bm', '.kg-bl', '.kg-cm', '.kg-cl', '.total-teori-card', '.total-aktual-card'];
+        fieldsToReset.forEach(selector => cardBaru.querySelector(selector).value = "0.00");
+        
+        const aktualFields = ['.akt-db', '.akt-bm', '.akt-bl', '.akt-cm', '.akt-cl'];
+        aktualFields.forEach(selector => cardBaru.querySelector(selector).value = "0");
+
+        // Bersihkan warning selisih yang mungkin ter-clone dari card pertama
+        let warnSelisih = cardBaru.querySelector('.warning-selisih-val');
+        if(warnSelisih) warnSelisih.classList.add('d-none');
+        
+        ['db', 'bm', 'bl', 'cm', 'cl'].forEach(pos => {
+            let warnPos = cardBaru.querySelector('.warn-pos-' + pos);
+            if(warnPos) { warnPos.classList.add('d-none'); warnPos.innerText = ""; }
+            let inputAktual = cardBaru.querySelector('.akt-' + pos);
+            if(inputAktual) inputAktual.style.setProperty('border-color', '#feb2b2', 'important');
+        });
+
+        // Hapus info "Data Forklift" (Bagian Nomor 4) karena ini SPK baru dan belum dimatching server
+        let infoRollCols = cardBaru.querySelectorAll('.border-top.border-info .col.text-center');
+        infoRollCols.forEach(col => {
+            // Kita sisakan HTML kosong agar rapi, user harus klik "RE-RUN MATCHING" nanti
+            col.innerHTML = '<div class="border border-secondary border-dashed rounded p-1 mb-1 bg-light text-center shadow-sm text-muted" style="font-size: 0.60rem;">Belum Matching</div>';
+        });
+
+        // Masukkan card ke paling bawah container
+        document.getElementById('spk-container').appendChild(cardBaru);
+        
+        // Rapikan index, tombol hapus, dan hitung otomatis
+        reindexSPK();
+        updateTombolHapus();
+        hitungKalkulator('init');
     }
 </script>
 </body>

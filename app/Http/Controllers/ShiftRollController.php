@@ -136,10 +136,14 @@ class ShiftRollController extends Controller
 
     public function postKembaliRoll(Request $request, $id)
     {
-        $request->validate(['sisa_kilo_akhir' => 'required|numeric']);
+        $request->validate([
+            'sisa_kilo_akhir' => 'required|numeric',
+            'posisi_mesin' => 'required|string' // Tambahkan validasi ini
+        ]);
 
         $transaksi = TransaksiRoll::findOrFail($id);
         $transaksi->update([
+            'posisi_mesin' => $request->posisi_mesin, // TAMBAHKAN BARIS INI agar posisi mesin tersimpan!
             'waktu_kembali' => Carbon::now(),
             'sisa_kilo_akhir' => $request->sisa_kilo_akhir,
             'status' => 'kembali'
@@ -149,7 +153,7 @@ class ShiftRollController extends Controller
             'sisa_kertas' => $request->sisa_kilo_akhir
         ]);
 
-        return redirect()->back()->with('success', 'Data sisa roll berhasil diperbarui!');
+        return redirect()->back()->with('success', 'Data sisa roll dan posisi mesin berhasil diperbarui!');
     }
 
     public function printReport($id)
@@ -196,5 +200,44 @@ class ShiftRollController extends Controller
 
         // Pastikan nama view Anda benar, sebelumnya Anda pakai 'shift.print' atau 'kertas.print'
         return view('shift.print', compact('shift', 'transaksi'));
+    }
+
+    // FUNGSI AJAX: UPDATE SISA KILO LANGSUNG DARI HALAMAN PRINT
+    // FUNGSI AJAX: UPDATE SISA KILO LANGSUNG DARI HALAMAN PRINT
+    public function updateSisaKilo(Request $request)
+    {
+        // Gunakan Model TransaksiRoll milik Mas
+        $transaksi = TransaksiRoll::find($request->id);
+        
+        if($transaksi) {
+            $transaksi->sisa_kilo_akhir = $request->sisa_kilo_akhir;
+            $transaksi->status = 'kembali';
+            
+            // Isi waktu kembali HANYA jika sebelumnya masih kosong
+            if(empty($transaksi->waktu_kembali)) {
+                $transaksi->waktu_kembali = now();
+            }
+            
+            $transaksi->save(); // Simpan ke database
+
+            return response()->json(['success' => true]);
+        }
+
+        return response()->json(['success' => false], 404);
+    }
+
+    // Method baru untuk mengubah posisi mesin tanpa input sisa kg
+    public function ubahPosisiMesin(Request $request, $id)
+    {
+        $request->validate([
+            'posisi_mesin' => 'required|string'
+        ]);
+
+        $transaksi = TransaksiRoll::findOrFail($id);
+        $transaksi->update([
+            'posisi_mesin' => $request->posisi_mesin
+        ]);
+
+        return redirect()->back()->with('success', 'Posisi mesin berhasil diganti menjadi ' . $request->posisi_mesin);
     }
 }

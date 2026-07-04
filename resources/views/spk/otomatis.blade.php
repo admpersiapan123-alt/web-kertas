@@ -258,39 +258,91 @@
 
     // 2. Fungsi Mengubah JSON Paste Menjadi Baris Tabel
     function prosesPasteJSON() {
-        let jsonString = document.getElementById('input-json-manual').value.trim();
-        
-        if (!jsonString) {
-            alert("⚠️ Paste dulu hasil JSON dari ChatGPT di kotak yang disediakan!");
-            return;
+    let jsonString = document.getElementById('input-json-manual').value.trim();
+
+    if (!jsonString) {
+        alert("⚠️ Paste dulu hasil JSON dari ChatGPT!");
+        return;
+    }
+
+    try {
+
+        // Hapus markdown ChatGPT
+        jsonString = jsonString
+            .replace(/```json/gi, '')
+            .replace(/```/g, '');
+
+        // Ganti smart quote iPhone
+        jsonString = jsonString
+            .replace(/[“”]/g, '"')
+            .replace(/[‘’]/g, "'");
+
+        // Hapus karakter aneh Unicode
+        jsonString = jsonString
+            .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+        // Jika ChatGPT menambahkan penjelasan sebelum/sesudah JSON
+        const firstBrace = jsonString.indexOf('{');
+        const lastBrace = jsonString.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            jsonString = jsonString.substring(
+                firstBrace,
+                lastBrace + 1
+            );
         }
 
-        try {
-            // PERTAHANAN: ChatGPT kadang masih bandel ngasih markdown ```json meskipun dilarang
-            jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '');
-            
-            // Ubah teks menjadi Objek Javascript
-            let res = JSON.parse(jsonString);
-            
-            if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-                // Bersihkan tabel saat ini
-                document.getElementById('tbody-spk').innerHTML = '';
-                
-                // Looping hasil dari ChatGPT dan masukkan ke tabel
-                res.data.forEach(item => {
-                    tambahSpkAuto(item); // Memanggil fungsi yang sama dengan milik Groq
-                });
-                
-                // Bersihkan kotak teks setelah sukses
-                document.getElementById('input-json-manual').value = '';
-                alert("✨ Magic sukses! Data dari ChatGPT sudah masuk ke tabel otomatis.");
-            } else {
-                alert("❌ Format JSON tidak sesuai. Pastikan ada key 'data' berupa array di dalamnya.");
-            }
-        } catch (e) {
-            alert("❌ Gagal membaca JSON! Pastikan yang dipaste benar-benar format kurung kurawal JSON, bukan teks biasa. \n\nError Detail: " + e.message);
+        // Parse JSON
+        let res = JSON.parse(jsonString);
+
+        // Jika ChatGPT mengembalikan array langsung
+        if (Array.isArray(res)) {
+            res = { data: res };
         }
+
+        if (
+            !res ||
+            !res.data ||
+            !Array.isArray(res.data)
+        ) {
+            throw new Error(
+                "Format harus memiliki property data berupa array"
+            );
+        }
+
+        // Kosongkan tabel
+        document.getElementById('tbody-spk').innerHTML = '';
+
+        // Tambahkan data
+        res.data.forEach(item => {
+            tambahSpkAuto({
+                spk: item.spk || '',
+                lebar: item.lebar || '',
+                meter: item.meter || '',
+                db: item.db || '',
+                bm: item.bm || '',
+                bl: item.bl || '',
+                cm: item.cm || '',
+                cl: item.cl || ''
+            });
+        });
+
+        document.getElementById('input-json-manual').value = '';
+
+        alert(
+            `✨ Berhasil import ${res.data.length} data SPK`
+        );
+
+    } catch (e) {
+
+        console.error("JSON ERROR:", e);
+
+        alert(
+            "❌ Gagal membaca JSON\n\n" +
+            e.message
+        );
     }
+}
 </script>
 </body>
 </html>

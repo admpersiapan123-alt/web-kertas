@@ -32,6 +32,11 @@ class ImportStockController extends Controller
 
         DB::beginTransaction();
         try {
+            // =========================================================
+            // FITUR BARU: Catat waktu pasti saat import dimulai
+            // =========================================================
+            $waktuImport = now();
+
             $currentJenis = '';
             $currentGsm = '';
             $currentLebar = '';
@@ -86,7 +91,7 @@ class ImportStockController extends Controller
                     $lokasi       = trim($data[11] ?? '');
                 }
 
-                // --- SMART PARSING ANGKA SISA KERTAS ---
+                // --- SMART PARSING ANGKA SISA KERTAS (TETAP DIPERTAHANKAN) ---
                 $sisa_bersih = trim($sisa_kotor);
 
                 if (strpos($sisa_bersih, ',') !== false && strpos($sisa_bersih, '.') !== false) {
@@ -108,9 +113,7 @@ class ImportStockController extends Controller
                 $sisa_final  = (float) ($sisa_bersih ?: 0);
                 
                 // --- FORMATTING LEBAR (Bulatkan ke angka utuh) ---
-                // Jaga-jaga kalau ada koma (misal 165,00), ubah ke titik dulu
                 $lebar_bersih = str_replace(',', '.', $currentLebar);
-                // Ubah menjadi float dulu (165.00), lalu bulatkan dan jadikan integer (165)
                 $lebar_final  = (int) round((float) $lebar_bersih);
 
 
@@ -121,19 +124,30 @@ class ImportStockController extends Controller
                         [
                             'jenis'        => $currentJenis,
                             'gsm'          => $currentGsm,
-                            'lebar'        => $lebar_final, // <-- Gunakan variabel lebar yang sudah dibulatkan
+                            'lebar'        => $lebar_final,
                             'no_roll_asli' => $no_roll_asli,
                             'sisa_kertas'  => $sisa_final,
                             'no_po'        => $no_po,
                             'wilayah'      => $wilayah,
                             'lokasi'       => $lokasi,
-                            'updated_at'   => now()
+                            // =================================================
+                            // FITUR BARU: Paksa updated_at menggunakan waktu import
+                            // =================================================
+                            'updated_at'   => $waktuImport 
                         ]
                     );
                 }
             }
 
             fclose($handle);
+
+            // =========================================================
+            // FITUR BARU: HAPUS ROLL YANG TIDAK ADA DI CSV
+            // =========================================================
+            // Mencari roll di database yang 'updated_at'-nya LEBIH LAMA dari $waktuImport.
+            // Karena jika dia ada di CSV, pasti updated_at nya sudah berubah menjadi $waktuImport.
+            StockKertas::where('updated_at', '<', $waktuImport)->delete();
+
             DB::commit();
             
             return back()->with('success', 'Database Stok Kertas berhasil disinkronisasi otomatis!');

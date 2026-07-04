@@ -6,7 +6,7 @@ use App\Http\Controllers\StockKertasController;
 use App\Http\Controllers\ShiftRollController;
 use App\Http\Controllers\SpkController;
 use App\Http\Controllers\ImportStockController;
-
+use App\Http\Controllers\Versi2Controller;
 
 // 1. DASHBOARD UTAMA
 Route::get('/', [DashboardController::class, 'index']); 
@@ -25,6 +25,9 @@ Route::prefix('shift')->group(function () {
     Route::post('/kembali-roll/{id}', [ShiftRollController::class, 'postKembaliRoll']);
     Route::post('/batal-roll/{id}', [ShiftRollController::class, 'batalRoll']);
     Route::get('/{id}/print', [ShiftRollController::class, 'printReport']);
+    Route::post('/ubah-posisi/{id}', [ShiftRollController::class, 'ubahPosisiMesin'])->name('shift.ubahPosisi');
+    Route::post('/transaksi/update-sisa', [ShiftRollController::class, 'updateSisaKilo']);
+// Catatan: Sesuaikan 'ShiftController' dengan nama controller Anda.
 });
 
 
@@ -71,3 +74,58 @@ Route::get('/stock-kertas/import', [ImportStockController::class, 'showImportFor
 
 // Route untuk memproses file CSV yang diupload
 Route::post('/stock-kertas/import', [ImportStockController::class, 'importStockCSV']);
+
+// ==========================================
+// 6. MENU VERSI 2 (FULL OTOMATIS & GLOBAL POOLING)
+// ==========================================
+Route::prefix('versi2')->group(function () {
+    // A. Manajemen Shift & Scan Forklift V2 (Tanpa Posisi)
+    Route::get('/scan-shift', [Versi2Controller::class, 'shiftIndex']);
+    Route::post('/scan-shift/store', [Versi2Controller::class, 'shiftStore']);
+    Route::get('/scan-shift/{id}/dashboard', [Versi2Controller::class, 'shiftDashboard']);
+    Route::post('/api/shift/{id}/ambil-roll', [Versi2Controller::class, 'postAmbilRoll']);
+    Route::post('/shift/kembali-roll/{id}', [Versi2Controller::class, 'postKembaliRoll']);
+    Route::post('/shift/batal-roll/{id}', [Versi2Controller::class, 'batalRoll']);
+
+    // B. Pencocokan AI Mak Comblang V2
+    Route::get('/pencocokan', [Versi2Controller::class, 'pencocokanIndex']);
+    Route::post('/pencocokan/store', [Versi2Controller::class, 'storePencocokan']);
+    Route::post('/pencocokan/scan-ai', [Versi2Controller::class, 'scanFotoAiV2']); // Pakai AI Groq
+    
+    // C. Riwayat & Edit V2
+    Route::get('/riwayat', [Versi2Controller::class, 'riwayatIndex']);
+    Route::post('/pencocokan/re-run/{id}', [Versi2Controller::class, 'reRunPencocokan']);
+    Route::post('/delete/{id}', [Versi2Controller::class, 'destroy']); 
+    Route::get('/riwayat/{id}', [Versi2Controller::class, 'showDetail']);
+    Route::get('/riwayat/{id}/edit', [Versi2Controller::class, 'editIndex']);
+});
+
+Route::get('/checker', [App\Http\Controllers\CheckerController::class, 'index']);
+Route::post('/checker/store', [App\Http\Controllers\CheckerController::class, 'storePlan']);
+Route::post('/checker/scan/save', [App\Http\Controllers\CheckerController::class, 'saveScan']);
+Route::post('/checker/scan/delete', [App\Http\Controllers\CheckerController::class, 'deleteScan']);
+Route::post('/checker/scan/fetch-kg', [App\Http\Controllers\CheckerController::class, 'fetchKg']);
+Route::post('/checker/task/delete/{id}', [App\Http\Controllers\CheckerController::class, 'hapusTugas']);
+Route::post('/checker/task/reset', [App\Http\Controllers\CheckerController::class, 'resetSemua']);
+Route::post('/checker/task/submit/{id}', [App\Http\Controllers\CheckerController::class, 'submitTask']);
+Route::get('/checker/riwayat', [App\Http\Controllers\CheckerController::class, 'riwayat']);
+Route::post('/checker/task/revert/{id}', [App\Http\Controllers\CheckerController::class, 'batalSubmit']);
+Route::post('/checker/task/push/{id}', [App\Http\Controllers\CheckerController::class, 'pushToMakComblang']);
+Route::post('/checker/task/unmerge/{id}', [App\Http\Controllers\CheckerController::class, 'batalMerge']);
+
+// Rute Halaman Utama V3
+Route::get('/shift-v3', [App\Http\Controllers\ShiftV3Controller::class, 'index']);
+
+// Rute yang kemarin sudah ada:
+Route::get('/shift-v3/print/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'printReport']);
+Route::post('/shift-v3/transaksi/update-sisa', [App\Http\Controllers\ShiftV3Controller::class, 'updateSisaKilo']);
+Route::post('/shift-v3', [App\Http\Controllers\ShiftV3Controller::class, 'store']);
+// Rute Scan & Daftar V3
+Route::get('/shift-v3/scan/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'scan']);
+
+// Rute Aksi AJAX dan Form V3
+Route::post('/shift-v3/scan-ajax/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'storeScanAjax']);
+Route::post('/shift-v3/kembali-roll/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'kembalikanRoll']);
+Route::post('/shift-v3/batal-roll/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'batalRoll']);
+Route::post('/shift-v3/ubah-posisi/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'ubahPosisi']);
+
