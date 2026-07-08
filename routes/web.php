@@ -129,3 +129,7 @@ Route::post('/shift-v3/kembali-roll/{id}', [App\Http\Controllers\ShiftV3Controll
 Route::post('/shift-v3/batal-roll/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'batalRoll']);
 Route::post('/shift-v3/ubah-posisi/{id}', [App\Http\Controllers\ShiftV3Controller::class, 'ubahPosisi']);
 
+Route::get('/shift/transaksi/get-info-roll', [ShiftRollController::class, 'getInfoRoll']);
+Route::post('/shift/transaksi/update-roll-posisi', [ShiftRollController::class, 'updateRollDanPosisi']);
+Route::post('/shift/transaksi/tambah-roll-langsung', [ShiftRollController::class, 'tambahRollLangsung']);
+Route::post('/shift/transaksi/batal-roll-ajax', [ShiftRollController::class, 'batalRollAjax']);

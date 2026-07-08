@@ -156,6 +156,125 @@ class ShiftRollController extends Controller
         return redirect()->back()->with('success', 'Data sisa roll dan posisi mesin berhasil diperbarui!');
     }
 
+    // 1. Fungsi mencari berat awal, gsm, lebar dari Master Stok Kertas
+public function getInfoRoll(Request $request)
+{
+    // Silakan sesuaikan nama model Master Stok Anda (misal MasterKertas)
+    $kertas = \App\Models\StockKertas::where('no_roll', $request->no_roll)->first();
+
+    if ($kertas) {
+        return response()->json([
+            'success' => true,
+            'berat_awal' => $kertas->berat_awal, // Sesuaikan nama kolom berat di tabel master Anda
+            'gsm'        => $kertas->gsm,
+            'lebar'      => $kertas->lebar,
+        ]);
+    }
+    return response()->json(['success' => false]);
+}
+
+// 2. Fungsi memperbarui nomor roll, berat sisa awal, dan posisi mesin sekaligus
+public function updateRollDanPosisi(Request $request) // Sesuaikan nama fungsinya dengan yang Anda pakai
+    {
+        // 1. JIKA EDIT DATA LAMA
+        if ($request->has('id') && $request->id != null) {
+            $transaksi = \App\Models\TransaksiRoll::find($request->id);
+            if ($transaksi) {
+                $transaksi->no_roll         = $request->no_roll;
+                $transaksi->sisa_kilo_awal  = $request->sisa_kilo_awal;
+                $transaksi->posisi_mesin    = $request->posisi_mesin;
+                $transaksi->save();
+                return response()->json(['success' => true]);
+            }
+        } 
+        // 2. JIKA BARIS BARU (Baru diinput dari kolom kosong)
+        else {
+            $transaksi = new \App\Models\TransaksiRoll();
+            $transaksi->shift_id        = $request->shift_id; 
+            $transaksi->no_roll         = $request->no_roll;
+            $transaksi->sisa_kilo_awal  = $request->sisa_kilo_awal;
+            $transaksi->posisi_mesin    = $request->posisi_mesin ?? 'DB'; // Beri default DB jika tidak sengaja kosong
+            
+            // --- INI BAGIAN YANG DIPERBAIKI SESUAI SKEMA ---
+            $transaksi->waktu_ambil     = now(); 
+            $transaksi->status          = 'diambil'; // Sesuai enum: 'diambil' atau 'kembali'
+            $transaksi->metode_input    = 'manual';  // Wajib diisi karena tidak nullable() di database
+            // -----------------------------------------------
+
+            $transaksi->save();
+
+            return response()->json(['success' => true, 'new_id' => $transaksi->id]);
+        }
+
+        return response()->json(['success' => false], 404);
+    }
+
+public function tambahRollLangsung(Request $request)
+{
+    try {
+        // 1. CARI DATA ROLL INI DI MASTER STOCK KERTAS
+        $master = \App\Models\StockKertas::where('no_roll', $request->no_roll)->first();
+
+        if (!$master) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No Roll tidak ditemukan di Master Stock Kertas!'
+            ], 404);
+        }
+
+        // 2. CEK RIWAYAT TRANSAKSI TERAKHIR ROLL INI
+        $transaksiTerakhir = \App\Models\TransaksiRoll::where('no_roll', $request->no_roll)
+                                  ->orderBy('created_at', 'desc')
+                                  ->first();
+
+        // 3. LOGIKA FORKLIFT (Cek apakah masih dipakai)
+        if ($transaksiTerakhir && is_null($transaksiTerakhir->sisa_kilo_akhir)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Roll {$request->no_roll} masih dipakai di mesin (sisa belum dikembalikan)! Sedang dibawa forklift ya? 🚜"
+            ]);
+        }
+
+        // 4. SIMPAN SEBAGAI TRANSAKSI BARU
+        $transaksi = new \App\Models\TransaksiRoll();
+        $transaksi->shift_id        = $request->shift_id; 
+        $transaksi->no_roll         = $request->no_roll;
+        $transaksi->posisi_mesin    = $request->posisi_mesin ?? 'DB';
+        
+        // ==========================================
+        // PERBAIKAN LOGIKA PENGAMBILAN BERAT
+        // ==========================================
+        if ($transaksiTerakhir) {
+            // Jika pernah dipakai sebelumnya, sisa awalnya adalah sisa akhir dari transaksi sebelumnya
+            $transaksi->sisa_kilo_awal = $transaksiTerakhir->sisa_kilo_akhir;
+        } else {
+            // Jika ini pertama kali dipakai, baru ambil dari Master Kertas
+            $transaksi->sisa_kilo_awal = $master->berat ?? $master->sisa_kertas ?? 0;
+        }
+        // ==========================================
+        
+        $transaksi->waktu_ambil     = now(); 
+        $transaksi->status          = 'diambil'; 
+        $transaksi->metode_input    = 'manual';  
+        $transaksi->save();
+
+        // 5. KEMBALIKAN SEMUA DATA KE JAVASCRIPT
+        return response()->json([
+            'success'         => true, 
+            'new_id'          => $transaksi->id,
+            'gsm'             => $master->gsm ?? '-',
+            'lebar'           => $master->lebar ?? '-',
+            'sisa_kilo_awal'  => $transaksi->sisa_kilo_awal
+        ]);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false, 
+            'message' => $e->getMessage()
+        ], 500);
+    }
+}
+
     public function printReport($id)
     {
         $shift = Shift::findOrFail($id);
@@ -204,9 +323,10 @@ class ShiftRollController extends Controller
 
     // FUNGSI AJAX: UPDATE SISA KILO LANGSUNG DARI HALAMAN PRINT
     // FUNGSI AJAX: UPDATE SISA KILO LANGSUNG DARI HALAMAN PRINT
+    // UPDATE FUNGSI INI:
+    // FUNGSI AJAX: UPDATE SISA KILO LANGSUNG DARI HALAMAN PRINT
     public function updateSisaKilo(Request $request)
     {
-        // Gunakan Model TransaksiRoll milik Mas
         $transaksi = TransaksiRoll::find($request->id);
         
         if($transaksi) {
@@ -218,12 +338,41 @@ class ShiftRollController extends Controller
                 $transaksi->waktu_kembali = now();
             }
             
-            $transaksi->save(); // Simpan ke database
+            $transaksi->save(); // Simpan ke database transaksi
+
+            // --- TAMBAHAN BARU: Update Master Stock Kertas ---
+            \App\Models\StockKertas::where('no_roll', $transaksi->no_roll)->update([
+                'sisa_kertas' => $request->sisa_kilo_akhir
+            ]);
+            // -------------------------------------------------
 
             return response()->json(['success' => true]);
         }
 
         return response()->json(['success' => false], 404);
+    }
+
+    // TAMBAHKAN FUNGSI BARU INI DI BAWAHNYA:
+    // FUNGSI AJAX: BATAL ROLL DARI HALAMAN PRINT
+    public function batalRollAjax(Request $request)
+    {
+        $transaksi = TransaksiRoll::find($request->id);
+        
+        if($transaksi) {
+            // Jika statusnya sudah 'kembali', kembalikan sisa kertas ke stok awal sebelum dihapus
+            if ($transaksi->status == 'kembali') {
+                \App\Models\StockKertas::where('no_roll', $transaksi->no_roll)->update([
+                    'sisa_kertas' => $transaksi->sisa_kilo_awal
+                ]);
+            }
+
+            // Eksekusi hapus data
+            $transaksi->delete();
+            
+            return response()->json(['success' => true, 'message' => 'Roll berhasil dibatalkan.']);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Data transaksi tidak ditemukan!'], 404);
     }
 
     // Method baru untuk mengubah posisi mesin tanpa input sisa kg

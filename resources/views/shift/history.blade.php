@@ -8,6 +8,11 @@
 </head>
 <body class="bg-light">
 <div class="container py-3" style="max-width: 600px;">
+
+
+    <div class="text-start mb-3">
+        <a href="{{ url('/') }}" class="btn btn-outline-secondary btn-sm">← Kembali</a>
+    </div>
     
     <h4 class="fw-bold text-center mb-3">Sistem Cetak Roll Forklift</h4>
 
