@@ -2,12 +2,30 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Kamera Scanner Stock Kertas</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f4f6f9; }
-        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 10px; overflow: hidden; border: 3px solid #343a40; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #reader { 
+            width: 100%; 
+            max-width: 500px; 
+            margin: 0 auto; 
+            border-radius: 10px; 
+            overflow: hidden; 
+            border: 3px solid #343a40; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            background: #fff;
+        }
+        #reader button {
+            margin-top: 10px;
+            padding: 8px 16px;
+            background-color: #0d6efd;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -70,7 +88,7 @@
         html5QrcodeScanner.clear();
 
         let audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav');
-        audio.play();
+        audio.play().catch(e => console.log("Audio autoplay diblokir:", e));
 
         fetch(`/api/check-roll/${decodedText}`)
             .then(response => response.json())
@@ -95,12 +113,26 @@
     }
 
     function startScanner() {
-        html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
-            fps: 15, 
-            qrbox: { width: 300, height: 150 },
-            rememberLastUsedCamera: true
-        });
-        html5QrcodeScanner.render(onScanSuccess);
+        if(document.getElementById('reader')) {
+            html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
+                fps: 30, // 🚀 NAIKKAN FPS ke 30 agar lebih responsif
+                rememberLastUsedCamera: true,
+                qrbox: { width: 300, height: 100 }, // 🎯 Perkecil sedikit tingginya agar fokus ke tengah
+                videoConstraints: {
+                    facingMode: "environment",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                // ⚡ PANGKAS FORMAT: Sisakan yang benar-benar dipakai pabrik.
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.CODE_128,// Format paling umum untuk stiker roll/karton
+                    Html5QrcodeSupportedFormats.CODE_39, // Buka komen ini jika tidak terbaca
+                    Html5QrcodeSupportedFormats.QR_CODE, // Buka komen ini jika barcodenya bentuk kotak
+                    Html5QrcodeSupportedFormats.EAN_13,
+                ]
+            });
+            html5QrcodeScanner.render(onScanSuccess);
+        }
     }
 
     function resetScanner() {

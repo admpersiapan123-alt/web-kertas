@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Checker Dashboard</title>
+    <title>Checker Dashboard - Auto Kalkulasi</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
@@ -20,8 +20,6 @@
         .inp-belakang { border-radius: 0 6px 6px 0; border-left: none; }
         
         .row-tersimpan { background-color: #d1e7dd; border: 1px solid #0f5132; border-radius: 6px; padding: 5px; }
-        
-        /* Tambahan Visual Kotak Kg Bisa Diedit */
         .inp-kg:focus { background-color: #e7f1ff !important; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
     </style>
 </head>
@@ -29,21 +27,20 @@
 
 <div class="bg-primary text-white text-center py-3 shadow-sm sticky-top">
     <h5 class="mb-0 fw-bold">📱 WMS CHECKER</h5>
-    <small class="opacity-75">Sistem Nyicil Persiapan Roll</small>
+    <small class="opacity-75">Sistem Ekstrak & Kalkulasi Otomatis</small>
 </div>
 
 <div class="container py-3">
 
-<!-- MENU NAVIGASI -->
     <div class="d-flex justify-content-center gap-2 mb-4">
         <a href="{{ url('/checker') }}" class="btn btn-primary fw-bold shadow-sm px-4">📋 ANTREAN</a>
         <a href="{{ url('/checker/riwayat') }}" class="btn btn-outline-secondary fw-bold bg-white shadow-sm px-4">🕒 RIWAYAT</a>
     </div>
     
-    <div class="card bg-white border-0 shadow-sm mb-4 rounded-3">
+    <div class="card bg-white border-0 shadow-sm mb-4 rounded-3 border-start border-4 border-warning">
         <div class="card-body p-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="fw-bold text-secondary" style="font-size: 0.85rem;">📥 Masukkan Jadwal Baru:</span>
+                <span class="fw-bold text-dark" style="font-size: 0.85rem;">📥 Masukkan Hasil OCR / ChatGPT:</span>
                 
                 <form action="{{ url('/checker/task/reset') }}" method="POST" onsubmit="return confirm('💥 PERINGATAN KERAS! 💥\n\nYakin mau MENGHAPUS SEMUA jadwal dan data roll persiapan?')">
                     @csrf
@@ -53,9 +50,9 @@
 
             <form action="{{ url('/checker/store') }}" method="POST">
                 @csrf
-                <div class="input-group">
-                    <textarea name="json_data" class="form-control" rows="1" placeholder='Paste JSON di sini...' required style="font-size:0.8rem; font-family:monospace;"></textarea>
-                    <button type="submit" class="btn btn-dark fw-bold px-3">➕ EXTRACT</button>
+                <div class="input-group shadow-sm">
+                    <textarea name="json_data" class="form-control bg-light text-primary fw-bold" rows="1" placeholder='Paste JSON di sini...' required style="font-size:0.8rem; font-family:monospace;"></textarea>
+                    <button type="submit" class="btn btn-dark fw-bold px-3">⚡ EXTRACT & HITUNG</button>
                 </div>
             </form>
         </div>
@@ -107,12 +104,17 @@
                             <div class="kertas-block shadow-sm">
                                 <div class="d-flex justify-content-between align-items-start mb-2 border-bottom pb-2">
                                     <div>
-                                        <h5 class="fw-bold text-dark mb-0">{{ $gsmAsli }} <small class="text-muted fs-6">({{ $gsmBaca }})</small></h5>
-                                        <div class="text-primary fw-bold" style="font-size: 0.85rem;">Total Lari: {{ number_format($dataKertas['total_meter'], 0) }} M</div>
-                                        <div class="text-danger fw-bold" style="font-size: 0.85rem;">Estimasi Butuh: ± {{ number_format($dataKertas['estimasi_kg'], 0) }} Kg</div>
+                                        <h5 class="fw-bold text-dark mb-1">{{ $gsmAsli }} <small class="text-muted fs-6">({{ $gsmBaca }})</small></h5>
+                                        
+                                        <div class="text-primary fw-bold" style="font-size: 0.85rem;">
+                                            🏃‍♂️ Running Meter: {{ number_format($dataKertas['total_meter'], 0) }} M
+                                        </div>
+                                        <div class="text-danger fw-bold" style="font-size: 0.85rem;">
+                                            ⚖️ Estimasi Butuh: ± {{ number_format($dataKertas['estimasi_kg'], 0) }} Kg
+                                        </div>
                                     </div>
                                     <div class="text-end">
-                                        <span class="badge bg-warning text-dark mb-1">Butuh ~{{ $estimasiRoll }} Roll</span><br>
+                                        <span class="badge bg-warning text-dark mb-1 shadow-sm border border-dark">Butuh ~{{ $estimasiRoll }} Roll</span><br>
                                         <button class="btn btn-sm btn-outline-secondary fw-bold mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#{{ $uid }}" style="font-size: 0.7rem;">
                                             Lihat SPK 👇
                                         </button>
@@ -240,7 +242,7 @@
                 if(data.success) {
                     kgBox.value = data.kg; 
                 } else {
-                    kgBox.value = ""; // Dikosongkan agar bisa diketik manual kalau darurat
+                    kgBox.value = ""; 
                     alert("❌ Roll " + fullRoll + " tidak ditemukan! Silakan ketik Kg secara manual jika fisik ada.");
                 }
             }).catch(err => { kgBox.value = ""; });
@@ -260,7 +262,6 @@
         let middle = baris.querySelector('.inp-middle').value.trim().toUpperCase();
         let belakang = baris.querySelector('.inp-belakang').value.trim().toUpperCase();
         
-        // Membaca angka apapun yang diketik oleh Checker!
         let kgValue = parseFloat(baris.querySelector('.inp-kg').value);
 
         if(!depan || !belakang || !kgValue || isNaN(kgValue)) {

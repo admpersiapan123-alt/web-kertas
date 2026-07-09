@@ -87,14 +87,14 @@
 </head>
 <body>
 
-<div class="bg-dark text-white p-3 text-center shadow-sm">
+<!-- <div class="bg-dark text-white p-3 text-center shadow-sm">
     <div style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">{{ mb_strtoupper($shift->kepala_shift) }}</div>
     <div class="text-warning fw-bold" style="font-size: 13px;">{{ date('d M Y', strtotime($shift->tanggal)) }}</div>
-</div>
+</div> -->
 <div class="bg-success text-white p-3 text-center shadow-sm d-flex justify-content-between align-items-center">
     <a href="{{ url('/shift') }}" class="btn btn-sm btn-dark fw-bold">⬅ KEMBALI</a>
     <div>
-        <div style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">V3 - {{ mb_strtoupper($shift->kepala_shift) }}</div>
+        <div style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">{{ mb_strtoupper($shift->kepala_shift) }}</div>
         <div class="text-warning fw-bold" style="font-size: 13px;">{{ date('d M Y', strtotime($shift->tanggal)) }}</div>
     </div>
     <div style="width: 70px;"></div>

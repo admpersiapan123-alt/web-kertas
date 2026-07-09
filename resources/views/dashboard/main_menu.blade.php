@@ -67,6 +67,17 @@
                 </div>
             </a>
         </div>
+
+        <div class="col-md-4">
+            <a href="{{ url('/scan-finish') }}" class="text-decoration-none">
+                <div class="card menu-card shadow-sm h-100 p-4 text-center">
+                    <div class="icon-box">✅</div>
+                    <h5 class="fw-bold text-dark">Scan Roll Finished</h5>
+                    <p class="text-muted small mb-0">lihat roll yang telah selesai diproses.</p>
+                </div>
+            </a>
+        </div>
+
     </div>
 
     <hr class="my-5 border-secondary opacity-25">

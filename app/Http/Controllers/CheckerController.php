@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class CheckerController extends Controller
 {
     // --- FUNGSI SAKTI PEMBEDAH KODE (Kamus Baru sesuai PDF) ---
+    // --- FUNGSI SAKTI PEMBEDAH KODE (Kamus Baru sesuai PDF) ---
     private function bedahKodeKertas($kode_mentah) {
         if (!$kode_mentah || $kode_mentah == '' || $kode_mentah == '-') return null;
         
@@ -18,7 +19,7 @@ class CheckerController extends Controller
 
         if (preg_match('/^(\d+)([A-Z]+)/', $kode_bersih, $matches)) {
             $angka = $matches[1];
-            $huruf_planning = $matches[2]; // ex: TF, MY, MC, KE, dll
+            $huruf_planning = $matches[2]; // ex: TF, MY, MC, KE, SE, dll
 
             // 1. Standarisasi Angka & Tipe Kertas
             if ($angka == '101') $angka = '100';
@@ -30,8 +31,9 @@ class CheckerController extends Controller
                 $angka = (strpos($huruf_planning, 'W') !== false) ? '140' : '150';
             }
 
+            // PERBAIKAN BUG: Huruf 'S' dihapus dari Regex agar 'SE' otomatis jadi Medium!
             $tipe = 'M'; 
-            if (preg_match('/[K|B|T|S|L]/', substr($huruf_planning, 0, 1))) $tipe = 'K'; 
+            if (preg_match('/^[KBTL]/', $huruf_planning)) $tipe = 'K'; 
             if (strpos($huruf_planning, 'W') !== false) $tipe = 'WK';
 
             // 2. TERJEMAHAN HURUF PERTAMA (Gramatur/Jenis) sesuai PDF
@@ -54,37 +56,52 @@ class CheckerController extends Controller
             // 3. TERJEMAHAN HURUF KEDUA (Supplier) sesuai PDF
             $h2 = '';
             $mapSupplier = [
-                'F' => ['TF', 'MC', 'MF', 'KF', 'F'], // Fajar Surya
-                'D' => ['MY', 'MD', 'KD', 'Y', 'D'],  // Dayasa
-                'K' => ['KE', 'EK'],             // Ekamas
-                'S' => ['KS', 'SD', 'BS', 'S'],       // CMI / SDM
-                'B' => ['BB', 'SB', 'MB', 'BN', 'B'], // SMB
-                'C' => ['CK1', 'CK', 'MV', 'C'],       // Tjiwi Kimia
-                'P' => ['PK', 'TP', 'P'],             // Pakerin
-                'E' => ['SE', 'ES', 'E'],             // Enggal Subur
-                'T' => ['T'],                         // Mekabox
-                'M' => ['M'],                         // Buana Megah
-                'SI'=> ['SI'], 'SP'=> ['SP'], 'R'=> ['R'], 'X'=> ['X'], 'UJ'=> ['UJ'], 'H'=> ['H']
+                'F' => ['TF', 'MC', 'MF', 'KF', 'F', 'TR'], // Fajar Surya
+                'D' => ['MY', 'MD', 'KD', 'Y', 'D'],        // Dayasa
+                'K' => ['KE', 'EK', 'K'],                   // Ekamas
+                'S' => ['KS', 'SD', 'BS', 'WS', 'S'],       // CMI / SDM
+                'B' => ['BB', 'SB', 'WM'], // SMB
+                'C' => ['CK1', 'CK', 'MV', 'C'],             // Tjiwi Kimia
+                'P' => ['PK', 'TP', 'P'],                   // Pakerin
+                'E' => ['SE', 'ES', 'E'],                   // Enggal Subur
+                'M' => ['M'],                               // Buana Megah
+                'SI'=> ['SI'],
+                'SP'=> ['SP'], 
+                'R'=> ['ME', 'BE'],                    //Eco paper
+                'X'=> ['X'], 
+                'UJ'=> ['UJ'], 
+                'H'=> ['H']
             ];
 
+            // PERBAIKAN BUG: Gunakan in_array agar pencarian 100% persis!
             foreach ($mapSupplier as $supKode => $listPlanning) {
-                foreach ($listPlanning as $planKode) {
-                    if (strpos($huruf_planning, $planKode) !== false || $huruf_planning == $planKode) {
-                        $h2 = $supKode;
-                        break 2;
-                    }
+                if (in_array($huruf_planning, $listPlanning)) {
+                    $h2 = $supKode;
+                    break;
                 }
             }
-            if ($h2 == '') $h2 = substr($huruf_planning, -1); // Fallback ambil huruf terakhir planning
 
-            // GABUNGKAN JADI MIDDLE CODE FISIK (ex: B + F = BF)
+            // Fallback cerdas jika Planning Code tidak terdaftar di Array atas
+            if ($h2 == '') {
+                $last = substr($huruf_planning, -1);
+                if ($last == 'F') $h2 = 'F';
+                elseif ($last == 'Y' || $last == 'D') $h2 = 'D';
+                elseif ($last == 'S') $h2 = 'S';
+                elseif ($last == 'C') $h2 = 'C';
+                elseif ($last == 'E') $h2 = 'E';
+                elseif ($last == 'K') $h2 = 'K';
+                elseif ($last == 'B') $h2 = 'B';
+                elseif ($last == 'R') $h2 = 'R';
+                else $h2 = $last;
+            }
+
             $middle_code_fisik = $h1 . $h2;
 
             return [
                 'gsm_asli' => $kode_mentah,
                 'gsm_baca' => $tipe . $angka,
                 'angka_teori' => floatval($angka),
-                'middle_code' => $middle_code_fisik // Ini yang akan tayang di kotak kuning!
+                'middle_code' => $middle_code_fisik 
             ];
         }
         return null;
@@ -113,10 +130,10 @@ class CheckerController extends Controller
             return back()->with('error', 'Format JSON Tidak Valid!');
         }
 
-        // 1. KELOMPOKKAN BERDASARKAN LEBAR
+        // 1. KELOMPOKKAN BERDASARKAN LEBAR (Ditambahkan ALIAS 'width' / 'Width' dari monitor mesin)
         $groupedByLebar = [];
         foreach ($items as $item) {
-            $lebar = floatval($item['lebar'] ?? 0);
+            $lebar = floatval($item['lebar'] ?? $item['width'] ?? $item['Width'] ?? 0);
             $lebar_cm = $lebar > 500 ? $lebar / 10 : $lebar; 
             $groupedByLebar[$lebar_cm][] = $item;
         }
@@ -125,7 +142,9 @@ class CheckerController extends Controller
         foreach ($groupedByLebar as $lebar_cm => $spkList) {
             
             usort($spkList, function($a, $b) {
-                return intval($a['seq'] ?? 0) <=> intval($b['seq'] ?? 0);
+                $seqA = intval($a['seq'] ?? $a['seq#'] ?? $a['Seq#'] ?? 0);
+                $seqB = intval($b['seq'] ?? $b['seq#'] ?? $b['Seq#'] ?? 0);
+                return $seqA <=> $seqB;
             });
 
             $posisiGrup = [
@@ -139,15 +158,32 @@ class CheckerController extends Controller
             $faktor = ['db' => 1.0, 'bm' => 1.36, 'bl' => 1.0, 'cm' => 1.46, 'cl' => 1.0];
 
             foreach ($spkList as $spk) {
-                $meter = floatval($spk['meter'] ?? 0);
+                
+                // ===================================================================
+                // 🔥 SAKTI: LOGIKA AUTO-CALCULATE RUNNING METER DARI FOTO MONITOR MAS
+                // Rumus: Running Meter = (Length (mm) * Cuts) / 1000
+                // ===================================================================
+                $meter = floatval($spk['meter'] ?? $spk['Running Meter'] ?? 0);
+                
+                if ($meter == 0) {
+                    $length = floatval($spk['length'] ?? $spk['lengt'] ?? $spk['Length'] ?? $spk['Lengt'] ?? 0);
+                    $cuts = floatval($spk['cuts'] ?? $spk['Cuts'] ?? 0);
+                    if ($length > 0 && $cuts > 0) {
+                        $meter = ($length * $cuts) / 1000; // Auto dapat angka Running Meter asli!
+                    }
+                }
 
                 foreach (['db', 'bm', 'bl', 'cm', 'cl'] as $pos) {
-                    $mentah = $spk[$pos] ?? '';
+                    // Dukung pembacaan key huruf besar maupun kecil dari ChatGPT (db / DB)
+                    $mentah = $spk[$pos] ?? $spk[strtoupper($pos)] ?? '';
                     $bedah = $this->bedahKodeKertas($mentah);
                     
                     if ($bedah) {
                         $gsm_asli = $bedah['gsm_asli']; 
                         $teoriKg = ($meter * ($lebar_cm / 100) * $bedah['angka_teori'] * $faktor[$pos]) / 1000;
+
+                        $seqKey = intval($spk['seq'] ?? $spk['seq#'] ?? $spk['Seq#'] ?? 999999);
+                        $spkNama = $spk['spk'] ?? $spk['customer'] ?? $spk['Customer'] ?? 'Unknown';
 
                         if (!isset($posisiGrup[$pos]['kertas_list'][$gsm_asli])) {
                             $posisiGrup[$pos]['kertas_list'][$gsm_asli] = [
@@ -155,15 +191,15 @@ class CheckerController extends Controller
                                 'total_meter' => 0,
                                 'estimasi_kg' => 0,
                                 'spk_detail' => [],
-                                'first_seq' => intval($spk['seq'] ?? 999999) 
+                                'first_seq' => $seqKey 
                             ];
                         }
 
                         $posisiGrup[$pos]['kertas_list'][$gsm_asli]['total_meter'] += $meter;
                         $posisiGrup[$pos]['kertas_list'][$gsm_asli]['estimasi_kg'] += $teoriKg;
                         $posisiGrup[$pos]['kertas_list'][$gsm_asli]['spk_detail'][] = [
-                            'seq' => $spk['seq'] ?? '-',
-                            'spk_nama' => $spk['spk'] ?? 'Unknown'
+                            'seq' => $seqKey != 999999 ? $seqKey : '-',
+                            'spk_nama' => $spkNama
                         ];
                     }
                 }
@@ -196,7 +232,7 @@ class CheckerController extends Controller
             ]);
         }
 
-        return back()->with('success', '✅ Middle Code Otomatis Terjemah dengan Kamus Master!');
+        return back()->with('success', '✅ Data JSON dari Foto Monitor Berhasil Dihitung & Diekstrak Otomatis!');
     }
 
     // FUNGSI UNTUK MENYIMPAN 1 ROLL SECARA DIAM-DIAM (AJAX)
@@ -227,16 +263,11 @@ class CheckerController extends Controller
     public function fetchKg(Request $request)
     {
         $no_roll = $request->no_roll;
-        
-        // ⚠️ PENTING: Ganti 'stock_kertas' dengan nama tabel master roll pabrik Anda!
-        // ⚠️ Ganti 'sisa_kg' atau 'berat' dengan nama kolom kiloannya!
         $roll = DB::table('stock_kertas')->where('no_roll', $no_roll)->first();
 
         if ($roll) {
-            // Kalau ketemu, kirim angka Kg-nya ke layar Checker
-            return response()->json(['success' => true, 'kg' => $roll->sisa_kertas]); // ubah ->berat sesuai kolom db
+            return response()->json(['success' => true, 'kg' => $roll->sisa_kertas]); 
         } else {
-            // Kalau nggak ada di gudang, tolak!
             return response()->json(['success' => false]);
         }
     }
@@ -244,11 +275,8 @@ class CheckerController extends Controller
     // FUNGSI UNTUK MENGHAPUS 1 KELOMPOK LEBAR SAJA
     public function hapusTugas($id)
     {
-        // Hapus data scan-nya dulu biar bersih
         DB::table('checker_scans')->where('checker_task_id', $id)->delete();
-        // Baru hapus tugasnya
         DB::table('checker_tasks')->where('id', $id)->delete();
-
         return back()->with('success', '🗑️ Jadwal Lebar tersebut berhasil dihapus!');
     }
 
@@ -256,18 +284,15 @@ class CheckerController extends Controller
     public function resetSemua()
     {
         DB::table('checker_scans')->truncate();
-        // DB::table('checker_tasks')->truncate();
-
-        return back()->with('success', '💥 BAAAM! Semua jadwal dan memori roll berhasil dikosongkan!');
+        return back()->with('success', '💥 BAAAM! Semua memori roll berhasil dikosongkan!');
     }
-
 
     // FUNGSI SUBMIT KE RIWAYAT
     public function submitTask($id)
     {
         DB::table('checker_tasks')->where('id', $id)->update([
             'status' => 'SELESAI',
-            'updated_at' => now() // Rekam jam dan tanggal submit
+            'updated_at' => now()
         ]);
         return back()->with('success', '✅ Persiapan Lebar berhasil di-Submit dan masuk ke Riwayat!');
     }
@@ -277,8 +302,6 @@ class CheckerController extends Controller
     {
         $tasks = DB::table('checker_tasks')->whereIn('status', ['SELESAI', 'MERGED'])->orderBy('updated_at', 'desc')->get();
         $scans = DB::table('checker_scans')->get()->groupBy('checker_task_id'); 
-        
-        // Panggil Shift dari tabel V3
         $shifts = DB::table('shifts_v3')->orderBy('id', 'desc')->limit(10)->get(); 
         
         return view('checker.riwayat', compact('tasks', 'scans', 'shifts'));
@@ -287,35 +310,31 @@ class CheckerController extends Controller
     // FUNGSI PUSH KE SCAN FORKLIFT (V3)
     public function pushToMakComblang(Request $request, $id)
     {
-        $shift_id = $request->shifts_id; // Dari input form riwayat
+        $shift_id = $request->shifts_id; 
         if (!$shift_id) return back()->with('error', 'Pilih Shift terlebih dahulu!');
 
-        // Ambil data task utama (untuk mendapatkan Lebar CM-nya)
         $taskMaster = DB::table('checker_tasks')->where('id', $id)->first();
-        $lebar_jalan = $taskMaster->lebar_cm; // 👈 KITA TANGKAP LEBARNYA DI SINI
+        $lebar_jalan = $taskMaster->lebar_cm; 
 
         $scans = DB::table('checker_scans')->where('checker_task_id', $id)->get();
 
         foreach($scans as $scan) {
-            // Ambil data mutlak dari komputer
             $master = DB::table('stock_kertas')->where('no_roll', $scan->no_roll)->first();
 
             if($master) {
-                // Cek agar tidak dobel di V3
                 $exists = DB::table('transaksi_roll_v3')
                             ->where('shift_v3_id', $shift_id)
                             ->where('no_roll', $scan->no_roll)
                             ->exists();
 
                 if(!$exists) {
-                    // MASUKKAN KE TABEL V3
                     DB::table('transaksi_roll_v3')->insert([
                         'shift_v3_id'     => $shift_id,
-                        'lebar_jalan'     => $lebar_jalan, // 👈 SUNTIKKAN LEBAR JALAN KE V3!
+                        'lebar_jalan'     => $lebar_jalan, 
                         'no_roll'         => $scan->no_roll,
                         'posisi_mesin'    => strtoupper($scan->posisi),
                         'waktu_ambil'     => now(),
-                        'sisa_kilo_awal'  => $master->sisa_kertas, // Ambil dari master gudang
+                        'sisa_kilo_awal'  => $master->sisa_kertas, 
                         'status'          => 'diambil',
                         'metode_input'    => 'otomatis_checker', 
                         'keterangan'      => 'Push dari Dashboard Checker (Lebar '.$lebar_jalan.')',
@@ -347,18 +366,15 @@ class CheckerController extends Controller
     // FUNGSI BATAL MERGE (TARIK KEMBALI DATA DARI V1)
     public function batalMerge($id)
     {
-        // 1. Ambil semua nomor roll yang ada di tugas ini
         $scans = DB::table('checker_scans')->where('checker_task_id', $id)->pluck('no_roll');
 
-        // 2. Hapus roll tersebut dari tabel V1 (Hanya hapus yang dari otomatis checker)
         if($scans->isNotEmpty()) {
             DB::table('transaksi_roll')
                 ->whereIn('no_roll', $scans)
-                ->where('metode_input', 'otomatis_checker') // Proteksi biar aman
+                ->where('metode_input', 'otomatis_checker') 
                 ->delete();
         }
 
-        // 3. Ubah status kembali menjadi SELESAI (Bisa dibongkar lagi)
         DB::table('checker_tasks')->where('id', $id)->update([
             'status' => 'SELESAI',
             'updated_at' => now()
