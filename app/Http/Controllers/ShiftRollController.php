@@ -34,7 +34,7 @@ class ShiftRollController extends Controller
         return redirect('/shift')->with('success', 'Sesi Shift Baru Berhasil Dibuat!');
     }
 
-    public function edit($id)
+public function edit($id)
     {
         $shift = Shift::findOrFail($id);
         return view('shift.edit_shift', compact('shift'));
@@ -52,6 +52,15 @@ class ShiftRollController extends Controller
         $shift->update($request->all());
 
         return redirect('/shift')->with('success', 'Data Shift Berhasil Diperbarui!');
+    }
+
+    // Tambahkan fungsi hapus ini
+    public function destroy($id)
+    {
+        $shift = Shift::findOrFail($id);
+        $shift->delete();
+
+        return redirect('/shift')->with('success', 'Data Shift Berhasil Dihapus!');
     }
 
     public function dashboard($id)

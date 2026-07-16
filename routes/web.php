@@ -19,6 +19,7 @@ Route::prefix('shift')->group(function () {
     Route::post('/store', [ShiftRollController::class, 'store']);
     Route::get('/{id}/edit', [ShiftRollController::class, 'edit']);
     Route::post('/{id}/update', [ShiftRollController::class, 'update']);
+    Route::delete('/{id}', [ShiftRollController::class, 'destroy']);
     
     // Dashboard Supir & Aksi
     Route::get('/{id}/dashboard', [ShiftRollController::class, 'dashboard']);

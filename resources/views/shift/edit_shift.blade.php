@@ -10,6 +10,8 @@
     <div class="card shadow">
         <div class="card-header bg-warning text-dark fw-bold">Edit Informasi Sesi</div>
         <div class="card-body">
+            
+            <!-- FORM UPDATE -->
             <form action="{{ url('/shift/'.$shift->id.'/update') }}" method="POST">
                 @csrf
                 <div class="mb-3">
@@ -27,18 +29,30 @@
                         <option value="2" {{ $shift->shift_ke == 2 ? 'selected' : '' }}>Shift 2</option>
                         <option value="3" {{ $shift->shift_ke == 3 ? 'selected' : '' }}>Shift 3</option>
                     </select>
-                <div class="mb-3">
+                </div>
+                <div class="mb-4">
                     <label class="small fw-bold">Status Sesi</label>
                     <select name="status" class="form-select">
                         <option value="aktif" {{ $shift->status == 'aktif' ? 'selected' : '' }}>Aktif (Bisa Di-scan)</option>
                         <option value="selesai" {{ $shift->status == 'selesai' ? 'selected' : '' }}>Selesai / Terkunci</option>
                     </select>
                 </div>
-                <div class="d-flex gap-2">
-                    <a href="{{ url('/') }}" class="btn btn-secondary w-50">Kembali</a>
-                    <button type="submit" class="btn btn-success w-50">Simpan Perubahan</button>
+                
+                <div class="d-flex gap-2 mb-3">
+                    <a href="{{ url('/shift') }}" class="btn btn-secondary w-50">Kembali</a>
+                    <button type="submit" class="btn btn-success w-50">Simpan</button>
                 </div>
             </form>
+
+            <hr> <!-- Garis pemisah untuk area berbahaya (Hapus) -->
+
+            <!-- FORM HAPUS -->
+            <form action="{{ url('/shift/'.$shift->id) }}" method="POST" onsubmit="return confirm('Yakin ingin menghapus sesi shift ini beserta semua data di dalamnya?');">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="btn btn-outline-danger w-100">🗑️ Hapus Sesi Ini</button>
+            </form>
+
         </div>
     </div>
 </div>

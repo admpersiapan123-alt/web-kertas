@@ -70,7 +70,8 @@ class CheckerController extends Controller
                 'R'=> ['ME', 'BE'],                    //Eco paper
                 'X'=> ['X'], 
                 'UJ'=> ['UJ'], 
-                'H'=> ['H']
+                'H'=> ['MG', 'TG'],
+                
             ];
 
             // PERBAIKAN BUG: Gunakan in_array agar pencarian 100% persis!

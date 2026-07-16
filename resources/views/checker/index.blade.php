@@ -7,6 +7,9 @@
     <title>Checker Dashboard - Auto Kalkulasi</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- 🚀 IMPORT MESIN OCR TESSERACT.JS (GRATIS & TANPA LIMIT) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
         .card-lebar { border: 2px solid #343a40; border-radius: 10px; overflow: hidden; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -27,11 +30,12 @@
 
 <div class="bg-primary text-white text-center py-3 shadow-sm sticky-top">
     <h5 class="mb-0 fw-bold">📱 WMS CHECKER</h5>
-    <small class="opacity-75">Sistem Ekstrak & Kalkulasi Otomatis</small>
+    <small class="opacity-75">Sistem Ekstrak & Kalkulasi Otomatis (Local AI)</small>
 </div>
 
 <div class="container py-3">
 
+    <!-- MENU NAVIGASI -->
     <div class="d-flex justify-content-center gap-2 mb-4">
         <a href="{{ url('/checker') }}" class="btn btn-primary fw-bold shadow-sm px-4">📋 ANTREAN</a>
         <a href="{{ url('/checker/riwayat') }}" class="btn btn-outline-secondary fw-bold bg-white shadow-sm px-4">🕒 RIWAYAT</a>
@@ -40,7 +44,7 @@
     <div class="card bg-white border-0 shadow-sm mb-4 rounded-3 border-start border-4 border-warning">
         <div class="card-body p-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="fw-bold text-dark" style="font-size: 0.85rem;">📥 Masukkan Hasil OCR / ChatGPT:</span>
+                <span class="fw-bold text-dark" style="font-size: 0.85rem;">📥 SCAN FOTO / PASTE JADWAL:</span>
                 
                 <form action="{{ url('/checker/task/reset') }}" method="POST" onsubmit="return confirm('💥 PERINGATAN KERAS! 💥\n\nYakin mau MENGHAPUS SEMUA jadwal dan data roll persiapan?')">
                     @csrf
@@ -48,11 +52,29 @@
                 </form>
             </div>
 
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <input type="file" id="upload-foto" accept="image/*" class="d-none" onchange="prosesFotoOCR(this)">
+                    <button type="button" class="btn btn-outline-primary fw-bold w-100 h-100" onclick="document.getElementById('upload-foto').click()">
+                        📷 1. BACA FOTO
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button type="button" class="btn btn-info fw-bold w-100 text-dark h-100 shadow-sm" onclick="rapikanJSON()">
+                        🪄 2. UBAH KE JSON
+                    </button>
+                </div>
+            </div>
+                
+            <div id="ocr-loading" class="alert alert-info text-center fw-bold py-2 mb-2" style="display: none; font-size: 0.85rem;">
+                ⏳ AI Sedang Membaca Gambar...
+            </div>
+
             <form action="{{ url('/checker/store') }}" method="POST">
                 @csrf
-                <div class="input-group shadow-sm">
-                    <textarea name="json_data" class="form-control bg-light text-primary fw-bold" rows="1" placeholder='Paste JSON di sini...' required style="font-size:0.8rem; font-family:monospace;"></textarea>
-                    <button type="submit" class="btn btn-dark fw-bold px-3">⚡ EXTRACT & HITUNG</button>
+                <div class="input-group shadow-sm flex-column">
+                    <textarea id="json_data_input" name="json_data" class="form-control bg-light text-primary fw-bold w-100" rows="5" placeholder='Hasil bacaan AI akan muncul di sini... Atau paste JSON dari ChatGPT di sini...' required style="font-size:0.8rem; font-family:monospace;"></textarea>
+                    <button type="submit" class="btn btn-dark fw-bold w-100 mt-1" style="height: 50px;">⚡ 3. EXTRACT & HITUNG</button>
                 </div>
             </form>
         </div>
@@ -313,6 +335,102 @@
         .then(data => {
             if(data.success) baris.remove();
         });
+    }
+
+    // SCRIPT 1: BACA GAMBAR JADI TEKS MENTAH KESELURUHAN
+    async function prosesFotoOCR(input) {
+        if (!input.files || input.files.length === 0) return;
+        
+        const file = input.files[0];
+        const loading = document.getElementById('ocr-loading');
+        const textarea = document.getElementById('json_data_input');
+        
+        loading.style.display = 'block';
+        loading.innerText = '⏳ Menyiapkan Mesin AI...';
+        textarea.value = '';
+
+        try {
+            const imageUrl = URL.createObjectURL(file);
+            const worker = await Tesseract.createWorker('eng', 1, {
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        loading.innerText = `⏳ Membaca Teks: ${Math.round(m.progress * 100)}%`;
+                    } else {
+                        loading.innerText = `⏳ Download Data AI: ${m.status}...`;
+                    }
+                }
+            });
+            
+            const ret = await worker.recognize(imageUrl);
+            
+            await worker.terminate();
+            URL.revokeObjectURL(imageUrl); 
+            
+            // JLEB! TAMPILKAN TEKS MENTAH APA ADANYA KE LAYAR!
+            textarea.value = ret.data.text;
+            loading.style.display = 'none';
+
+        } catch (error) {
+            loading.style.display = 'none';
+            console.error(error);
+            alert('❌ Terjadi kesalahan OCR: ' + error.message);
+        }
+    }
+
+    // SCRIPT 2: BEDAH TEKS MENTAH MENJADI JSON YANG SANGAT JELAS
+    function rapikanJSON() {
+        let text = document.getElementById('json_data_input').value;
+        if(!text) return alert('Teks masih kosong! Foto dulu atau paste teksnya.');
+
+        let lines = text.split('\n');
+        let arrayJson = [];
+
+        lines.forEach(line => {
+            // Bersihkan error ketikan khas OCR (Garis vertikal jadi spasi, huruf l/O jadi angka)
+            let cleanLine = line.replace(/\|/g, ' ').replace(/l/g, '1').replace(/O/g, '0').replace(/o/g, '0');
+
+            // Regex Pintar: Cari baris yang punya Angka-Angka dan KODE KERTAS (ex: 127TR, 110MC)
+            let papersMatch = cleanLine.match(/\b\d{3}[A-Z]{1,3}\b/g); 
+            let numbersMatch = cleanLine.match(/\b\d{2,}\b/g); // Cari kumpulan angka
+
+            // Syarat sah: Punya minimal 1 kode kertas dan minimal 3 angka (Width, Length, Cuts)
+            if (papersMatch && papersMatch.length > 0 && numbersMatch && numbersMatch.length >= 3) {
+                
+                // Ambil 3 angka paling belakang, biasanya itu pasti Width, Length, Cuts
+                let cuts = numbersMatch.pop();
+                let length = numbersMatch.pop();
+                let width = numbersMatch.pop();
+                
+                let id = numbersMatch.length > 0 ? numbersMatch.pop() : "0";
+                let seq = numbersMatch.length > 0 ? numbersMatch.pop() : "0";
+
+                // Bersihkan angka & kertas dari kalimat untuk mendapatkan Nama Customer
+                let spkName = cleanLine;
+                papersMatch.forEach(p => spkName = spkName.replace(p, ''));
+                spkName = spkName.replace(cuts, '').replace(length, '').replace(width, '').replace(id, '').replace(seq, '');
+                spkName = spkName.replace(/[^a-zA-Z\s.-]/g, '').trim(); // Bersihkan simbol aneh
+
+                arrayJson.push({
+                    "seq": seq,
+                    "spk": spkName || "UNKNOWN",
+                    "width": parseInt(width),
+                    "length": parseInt(length),
+                    "cuts": parseInt(cuts),
+                    "db": papersMatch[0] || "",
+                    "bm": papersMatch[1] || "",
+                    "bl": papersMatch[2] || "",
+                    "cm": papersMatch[3] || "",
+                    "cl": papersMatch[4] || ""
+                });
+            }
+        });
+
+        if (arrayJson.length > 0) {
+            document.getElementById('json_data_input').value = JSON.stringify({ data: arrayJson }, null, 2);
+            alert('✅ Berhasil menyusun data menjadi JSON!');
+        } else {
+            alert('⚠️ Gagal menemukan pola data SPK di dalam teks. Pastikan format teks mirip tabel mesin!');
+        }
     }
 </script>
 
