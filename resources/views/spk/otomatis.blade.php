@@ -316,6 +316,7 @@
         // Tambahkan data
         res.data.forEach(item => {
             tambahSpkAuto({
+                seq: item.seq || '',   // <--- Tambahkan baris ini
                 spk: item.spk || '',
                 lebar: item.lebar || '',
                 meter: item.meter || '',

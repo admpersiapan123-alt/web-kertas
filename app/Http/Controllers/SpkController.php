@@ -6,9 +6,67 @@ use Illuminate\Http\Request;
 use App\Models\Spk;
 use App\Models\KalkulasiSpk;
 use App\Models\TransaksiRoll;
+use App\Services\KalkulasiSpkService;
+
 
 class SpkController extends Controller
 {
+
+    protected $spkService;
+
+    // FUNGSI EXPORT EXCEL
+    public function exportExcel($id)
+    {
+        $kalkulasi = KalkulasiSpk::findOrFail($id);
+        $namaFile = 'Laporan_Kalkulasi_SPK_' . $kalkulasi->kode_sesi . '.xlsx';
+        
+        return Excel::download(new KalkulasiSpkExport($id), $namaFile);
+    }
+
+    // FUNGSI EXPORT PDF
+    public function exportPdf($id)
+    {
+        $kalkulasi = KalkulasiSpk::findOrFail($id);
+        
+        // Load view HTML yang sama untuk dijadikan PDF
+        $pdf = Pdf::loadView('spk.export_laporan', compact('kalkulasi'))
+                  ->setPaper('a4', 'landscape'); // Format kertas A4 memanjang
+        
+        $namaFile = 'Laporan_SPK_' . $kalkulasi->kode_sesi . '.pdf';
+        return $pdf->stream($namaFile); // Gunakan ->download() jika ingin langsung terunduh
+    }
+
+    public function __construct(KalkulasiSpkService $spkService)
+    {
+        $this->spkService = $spkService;
+    }
+
+    public function storeSapuJagat(Request $request)
+    {
+        $hasil = $this->spkService->hitungProrate($request->shift_id, $request);
+
+        \App\Models\KalkulasiSpk::create([
+            'kode_sesi' => 'SAPU-' . date('Ymd-His'),
+            'data_spk' => $hasil['data_json'],
+            'total_aktual_semua' => $hasil['grand_total'],
+            'shift_id' => $request->shift_id 
+        ]);
+
+        return redirect('/hitung-spk/riwayat')->with('success', 'Data berhasil diproses!');
+    }
+
+    public function reRunSapuJagat(Request $request, $id)
+    {
+        $kalkulasi = \App\Models\KalkulasiSpk::findOrFail($id);
+        $hasil = $this->spkService->hitungProrate($request->shift_id, $request);
+
+        $kalkulasi->update([
+            'data_spk' => $hasil['data_json'],
+            'total_aktual_semua' => $hasil['grand_total']
+        ]);
+
+        return redirect('/hitung-spk/riwayat')->with('success', 'Re-Run Matching sukses!');
+    }
     // Halaman Menu Utama SPK
     public function index()
     {
@@ -314,303 +372,354 @@ class SpkController extends Controller
     // =========================================================================
     // UPGRADE UTAMA: STORE SAPU JAGAT (DENGAN SISTEM MERGE BUCKET KRAFT)
     // =========================================================================
-    public function storeSapuJagat(Request $request)
-    {
-        $request->validate([
-            'shift_id' => 'required',
-            'no_spk' => 'required|array',
-            'lebar_mm' => 'required|array',
-            'panjang_m' => 'required|array',
-        ]);
+//     public function storeSapuJagat(Request $request)
+//     {
+//         $request->validate([
+//             'shift_id' => 'required',
+//             'no_spk' => 'required|array',
+//             'lebar_mm' => 'required|array',
+//             'panjang_m' => 'required|array',
+//         ]);
 
-        $shift_id = $request->shift_id;
-        $posisiList = ['DB' => 'gsm_db', 'BM' => 'gsm_bm', 'BL' => 'gsm_bl', 'CM' => 'gsm_cm', 'CL' => 'gsm_cl'];
+//         $shift_id = $request->shift_id;
+//         $posisiList = ['DB' => 'gsm_db', 'BM' => 'gsm_bm', 'BL' => 'gsm_bl', 'CM' => 'gsm_cm', 'CL' => 'gsm_cl'];
 
-        // --- TAHAP 1: KUMPULKAN DATA STOK FORKLIFT (GABUNGKAN B & T KE KOLAM K) ---
-        $transaksi = \App\Models\TransaksiRoll::with('masterKertas')->where('shift_id', $shift_id)->get();
-        $forkliftGroup = []; 
-        foreach ($transaksi as $t) {
-            $lebar_db = floatval($t->masterKertas->lebar ?? 0);
-            if ($lebar_db > 500) { $lebar_db = $lebar_db / 10; } 
+//         // --- TAHAP 1: KUMPULKAN DATA STOK FORKLIFT (GABUNGKAN B & T KE KOLAM K) ---
+//         $transaksi = \App\Models\TransaksiRoll::with('masterKertas')->where('shift_id', $shift_id)->get();
+//         $forkliftGroup = []; 
+//         foreach ($transaksi as $t) {
+//             $lebar_db = floatval($t->masterKertas->lebar ?? 0);
+//             if ($lebar_db > 500) { $lebar_db = $lebar_db / 10; } 
             
-            $gsm_standar = $this->terjemahkanKode($t->masterKertas->gsm ?? '');
-            if ($gsm_standar === '') continue;
+//             $gsm_standar = $this->terjemahkanKode($t->masterKertas->gsm ?? '');
+//             if ($gsm_standar === '') continue;
 
-            // MERGE BUCKET: Jika awalan B atau T, paksa masuk ke kolam K
-            $prorate_gsm = $gsm_standar;
-            $first_char = substr($gsm_standar, 0, 1);
-            if ($first_char === 'B' || $first_char === 'T') {
-                $prorate_gsm = 'K' . substr($gsm_standar, 1);
-            }
+//             // MERGE BUCKET: Jika awalan B atau T, paksa masuk ke kolam K
+//             $prorate_gsm = $gsm_standar;
+//             $first_char = substr($gsm_standar, 0, 1);
+//             if ($first_char === 'B' || $first_char === 'T') {
+//                 $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//             }
 
-            $posisi = strtoupper($t->posisi_mesin); 
-            $sisa_awal = floatval($t->sisa_kilo_awal);
-            $sisa_akhir = floatval($t->sisa_kilo_akhir);
-            $terpakai = ($sisa_akhir <= 0) ? $sisa_awal : ($sisa_awal - $sisa_akhir);
+//             $posisi = strtoupper($t->posisi_mesin); 
+//             $sisa_awal = floatval($t->sisa_kilo_awal);
+//             $sisa_akhir = floatval($t->sisa_kilo_akhir);
+//             $terpakai = ($sisa_akhir <= 0) ? $sisa_awal : ($sisa_awal - $sisa_akhir);
 
-            $kunci = $lebar_db . '_' . $prorate_gsm . '_' . $posisi; 
-            if (!isset($forkliftGroup[$kunci])) { $forkliftGroup[$kunci] = 0; }
-            $forkliftGroup[$kunci] += $terpakai; 
-        }
+//             $kunci = $lebar_db . '_' . $prorate_gsm . '_' . $posisi; 
+//             if (!isset($forkliftGroup[$kunci])) { $forkliftGroup[$kunci] = 0; }
+//             $forkliftGroup[$kunci] += $terpakai; 
+//         }
 
-        // --- TAHAP 2: HITUNG TOTAL METER MONITOR (GABUNGKAN B & T KE KOLAM K) ---
-        $meterGroup = [];
-        foreach ($request->no_spk as $index => $no_spk) {
-            $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
-            $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
-            $meter = floatval($request->panjang_m[$index] ?? 0);
+//         // --- TAHAP 2: HITUNG TOTAL METER MONITOR (GABUNGKAN B & T KE KOLAM K) ---
+//         // --- TAHAP 2: HITUNG TOTAL METER MONITOR ---
+//         $meterGroup = []; 
+//         foreach ($request->no_spk as $index => $no_spk) {
+//     $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
+    
+//     // KEMBALIKAN KE NAMA VARIABEL ASLI:
+//     $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm; 
+    
+//     $meter = floatval($request->panjang_m[$index] ?? 0);
 
-            foreach ($posisiList as $pos => $inputName) {
-                $input_mentah = $request->input($inputName)[$index] ?? '';
-                if ($input_mentah === '' || $input_mentah === '-') continue;
+//     foreach ($posisiList as $pos => $inputName) {
+//         $input_mentah = $request->input($inputName)[$index] ?? '';
+//         if ($input_mentah === '' || $input_mentah === '-') continue;
 
-                $lebar_pakai_cm = $lebar_cm_global;
-                $input_gsm = $input_mentah;
+//         $input_gsm = $input_mentah;
+        
+//         // Gunakan variabel asli di sini:
+//         $target_lebar_array = [$lebar_cm_global];
 
-                if (strpos($input_mentah, '/') !== false) {
-                    $parts = explode('/', $input_mentah);
-                    $input_gsm = $parts[0];
-                    $lebar_khusus = floatval($parts[1]);
-                    $lebar_pakai_cm = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                }
+//                 // JIKA ADA SLASH: Jangan timpa! Tambahkan lebar kedua ke dalam hak klaim
+//                 if (strpos($input_mentah, '/') !== false) {
+//                     $parts = explode('/', $input_mentah);
+//                     $input_gsm = $parts[0];
+//                     $lebar_khusus = floatval($parts[1]);
+//                     $lebar_tambahan = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+                    
+//                     if (!in_array($lebar_tambahan, $target_lebar_array)) {
+//                         $target_lebar_array[] = $lebar_tambahan; // Sekarang Array berisi: [170, 175]
+//                     }
+//                 }
 
-                $gsm_standar = $this->terjemahkanKode($input_gsm);
-                if ($gsm_standar === '') continue;
+//                 $gsm_standar = $this->terjemahkanKode($input_gsm);
+//                 if ($gsm_standar === '') continue;
 
-                // MERGE BUCKET: Arahkan meteran ini ke kolam K
-                $prorate_gsm = $gsm_standar;
-                $first_char = substr($gsm_standar, 0, 1);
-                if ($first_char === 'B' || $first_char === 'T') {
-                    $prorate_gsm = 'K' . substr($gsm_standar, 1);
-                }
+//                 $prorate_gsm = $gsm_standar;
+//                 $first_char = substr($gsm_standar, 0, 1);
+//                 if ($first_char === 'B' || $first_char === 'T') {
+//                     $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//                 }
 
-                $kunci = $lebar_pakai_cm . '_' . $prorate_gsm . '_' . $pos;
-                if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
-                $meterGroup[$kunci] += $meter;
-            }
-        }
+//                 // Daftarkan meter SPK ini ke SEMUA laci yang berhak dia ambil
+//                 foreach ($target_lebar_array as $lbr) {
+//                     $kunci = $lbr . '_' . $prorate_gsm . '_' . $pos;
+//                     if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
+//                     $meterGroup[$kunci] += $meter;
+//                 }
+//             }
+//         }
 
-        // --- TAHAP 3: EKSEKUSI PEMBAGIAN PRORATE ---
-        $data_json = [];
-        $grand_total_aktual = 0;
+//         // --- TAHAP 3: EKSEKUSI PEMBAGIAN PRORATE ---
+//         // --- TAHAP 3: EKSEKUSI PEMBAGIAN PRORATE ---
+// $data_json = [];
+// $grand_total_aktual = 0;
 
-        foreach ($request->no_spk as $index => $no_spk) {
-            $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
-            $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
-            $meter = floatval($request->panjang_m[$index] ?? 0);
+// foreach ($request->no_spk as $index => $no_spk) {
+//     $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
+    
+//     // KEMBALIKAN KE NAMA VARIABEL ASLI:
+//     $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
+    
+//     $meter = floatval($request->panjang_m[$index] ?? 0);
 
-            $jatah = ['DB' => 0, 'BM' => 0, 'BL' => 0, 'CM' => 0, 'CL' => 0];
-            $total_baris_aktual = 0;
+//     $jatah = ['DB' => 0, 'BM' => 0, 'BL' => 0, 'CM' => 0, 'CL' => 0];
+//     $total_baris_aktual = 0;
 
-            foreach ($posisiList as $pos => $inputName) {
-                $input_mentah = $request->input($inputName)[$index] ?? '';
-                if ($input_mentah === '' || $input_mentah === '-') continue;
+//     foreach ($posisiList as $pos => $inputName) {
+//         $input_mentah = $request->input($inputName)[$index] ?? '';
+//         if ($input_mentah === '' || $input_mentah === '-') continue;
 
-                $lebar_pakai_cm = $lebar_cm_global;
-                $input_gsm = $input_mentah;
+//         $input_gsm = $input_mentah;
+        
+//         // Gunakan variabel asli di sini:
+//         $target_lebar_array = [$lebar_cm_global];
 
-                if (strpos($input_mentah, '/') !== false) {
-                    $parts = explode('/', $input_mentah);
-                    $input_gsm = $parts[0];
-                    $lebar_khusus = floatval($parts[1]);
-                    $lebar_pakai_cm = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                }
+//         if (strpos($input_mentah, '/') !== false) {
+//             $parts = explode('/', $input_mentah);
+//             $input_gsm = $parts[0];
+//             $lebar_khusus = floatval($parts[1]);
+//             $lebar_tambahan = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+            
+//             if (!in_array($lebar_tambahan, $target_lebar_array)) {
+//                 $target_lebar_array[] = $lebar_tambahan;
+//             }
+//         }
 
-                $gsm_standar = $this->terjemahkanKode($input_gsm);
-                if ($gsm_standar === '') continue;
+//         $gsm_standar = $this->terjemahkanKode($input_gsm);
+//         if ($gsm_standar === '') continue;
 
-                // TARIK JATAH DARI KOLAM K YANG SUDAH DIGABUNG (B + T + K)
-                $prorate_gsm = $gsm_standar;
-                $first_char = substr($gsm_standar, 0, 1);
-                if ($first_char === 'B' || $first_char === 'T') {
-                    $prorate_gsm = 'K' . substr($gsm_standar, 1);
-                }
+//         $prorate_gsm = $gsm_standar;
+//         $first_char = substr($gsm_standar, 0, 1);
+//         if ($first_char === 'B' || $first_char === 'T') {
+//             $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//         }
 
-                $kunci = $lebar_pakai_cm . '_' . $prorate_gsm . '_' . $pos;
-                $total_meter_spek = $meterGroup[$kunci] ?? 0;
-                $total_kg_forklift = $forkliftGroup[$kunci] ?? 0;
+//         $total_jatah_posisi_ini = 0;
 
-                $rasio = $total_meter_spek > 0 ? ($meter / $total_meter_spek) : 0;
-                $jatah[$pos] = $rasio * $total_kg_forklift;
-                $total_baris_aktual += $jatah[$pos];
-            }
+//         // Tarik jatah dari SEMUA laci yang berhak (170 dan 175 digabung otomatis di sini)
+//         foreach ($target_lebar_array as $lbr) {
+//             $kunci = $lbr . '_' . $prorate_gsm . '_' . $pos;
+            
+//             $total_meter_spek = $meterGroup[$kunci] ?? 0;
+//             $total_kg_forklift = $forkliftGroup[$kunci] ?? 0;
 
-            $grand_total_aktual += $total_baris_aktual;
+//             $rasio = $total_meter_spek > 0 ? ($meter / $total_meter_spek) : 0;
+//             $total_jatah_posisi_ini += ($rasio * $total_kg_forklift);
+//         }
 
-            $data_json[] = [
-                'seq' => $request->seq[$index] ?? '',
-                'no_spk' => strtoupper($no_spk),
-                'lebar_cm' => $lebar_cm_global,
-                'panjang_m' => $meter,
-                'faktor_bm' => 1.36, 'faktor_cm' => 1.46, 
-                'gsm_db' => strtoupper($request->gsm_db[$index] ?? ''), 
-                'gsm_bm' => strtoupper($request->gsm_bm[$index] ?? ''), 
-                'gsm_bl' => strtoupper($request->gsm_bl[$index] ?? ''), 
-                'gsm_cm' => strtoupper($request->gsm_cm[$index] ?? ''), 
-                'gsm_cl' => strtoupper($request->gsm_cl[$index] ?? ''), 
-                'akt_db' => $jatah['DB'], 'akt_bm' => $jatah['BM'], 'akt_bl' => $jatah['BL'], 'akt_cm' => $jatah['CM'], 'akt_cl' => $jatah['CL'],
-                'total_aktual' => $total_baris_aktual
-            ];
-        }
+//         $jatah[$pos] = $total_jatah_posisi_ini;
+//         $total_baris_aktual += $total_jatah_posisi_ini;
+//     }
 
-        \App\Models\KalkulasiSpk::create([
-            'kode_sesi' => 'SAPU-' . date('Ymd-His'),
-            'data_spk' => $data_json,
-            'total_aktual_semua' => $grand_total_aktual,
-            'shift_id' => $shift_id 
-        ]);
 
-        return redirect('/hitung-spk/riwayat')->with('success', '✅ Boom! Data berhasil dicocokkan! Varian Kraft telah ter-merge sempurna!');
-    }
+//             $grand_total_aktual += $total_baris_aktual;
+
+//             $data_json[] = [
+//                 'seq' => $request->seq[$index] ?? '',
+//                 'no_spk' => strtoupper($no_spk),
+//                 'lebar_cm' => $lebar_cm_global,
+//                 'panjang_m' => $meter,
+//                 'faktor_bm' => 1.36, 'faktor_cm' => 1.46, 
+//                 'gsm_db' => strtoupper($request->gsm_db[$index] ?? ''), 
+//                 'gsm_bm' => strtoupper($request->gsm_bm[$index] ?? ''), 
+//                 'gsm_bl' => strtoupper($request->gsm_bl[$index] ?? ''), 
+//                 'gsm_cm' => strtoupper($request->gsm_cm[$index] ?? ''), 
+//                 'gsm_cl' => strtoupper($request->gsm_cl[$index] ?? ''), 
+//                 'akt_db' => $jatah['DB'], 'akt_bm' => $jatah['BM'], 'akt_bl' => $jatah['BL'], 'akt_cm' => $jatah['CM'], 'akt_cl' => $jatah['CL'],
+//                 'total_aktual' => $total_baris_aktual
+//             ];
+//         }
+
+//         \App\Models\KalkulasiSpk::create([
+//             'kode_sesi' => 'SAPU-' . date('Ymd-His'),
+//             'data_spk' => $data_json,
+//             'total_aktual_semua' => $grand_total_aktual,
+//             'shift_id' => $shift_id 
+//         ]);
+
+//         return redirect('/hitung-spk/riwayat')->with('success', '✅ Boom! Data berhasil dicocokkan! Varian Kraft telah ter-merge sempurna!');
+//     }
 
     // =========================================================================
     // UPGRADE UTAMA: RE-RUN MATCHING (DENGAN SISTEM MERGE BUCKET KRAFT)
     // =========================================================================
-    public function reRunSapuJagat(Request $request, $id)
-    {
-        $request->validate([
-            'shift_id' => 'required',
-            'no_spk' => 'required|array',
-            'lebar_mm' => 'required|array',
-            'panjang_m' => 'required|array',
-        ]);
+//     public function reRunSapuJagat(Request $request, $id)
+// {
+//     $request->validate([
+//         'shift_id' => 'required',
+//         'no_spk' => 'required|array',
+//         'lebar_mm' => 'required|array',
+//         'panjang_m' => 'required|array',
+//     ]);
 
-        $kalkulasi = \App\Models\KalkulasiSpk::findOrFail($id);
-        $shift_id = $request->shift_id;
-        $posisiList = ['DB' => 'gsm_db', 'BM' => 'gsm_bm', 'BL' => 'gsm_bl', 'CM' => 'gsm_cm', 'CL' => 'gsm_cl'];
+//     $kalkulasi = \App\Models\KalkulasiSpk::findOrFail($id);
+//     $shift_id = $request->shift_id;
+//     $posisiList = ['DB' => 'gsm_db', 'BM' => 'gsm_bm', 'BL' => 'gsm_bl', 'CM' => 'gsm_cm', 'CL' => 'gsm_cl'];
 
-        // --- TAHAP 1: AMBIL DATA STOK FORKLIFT (GABUNGKAN B & T KE KOLAM K) ---
-        $transaksi = \App\Models\TransaksiRoll::with('masterKertas')->where('shift_id', $shift_id)->get();
-        $forkliftGroup = []; 
-        foreach ($transaksi as $t) {
-            $lebar_db = floatval($t->masterKertas->lebar ?? 0);
-            if ($lebar_db > 500) { $lebar_db = $lebar_db / 10; } 
-            
-            $gsm_standar = $this->terjemahkanKode($t->masterKertas->gsm ?? '');
-            if ($gsm_standar === '') continue;
+//     // --- TAHAP 1: AMBIL DATA STOK FORKLIFT (GABUNGKAN B & T KE KOLAM K) ---
+//     $transaksi = \App\Models\TransaksiRoll::with('masterKertas')->where('shift_id', $shift_id)->get();
+//     $forkliftGroup = []; 
+//     foreach ($transaksi as $t) {
+//         $lebar_db = floatval($t->masterKertas->lebar ?? 0);
+//         if ($lebar_db > 500) { $lebar_db = $lebar_db / 10; } 
+        
+//         $gsm_standar = $this->terjemahkanKode($t->masterKertas->gsm ?? '');
+//         if ($gsm_standar === '') continue;
 
-            $prorate_gsm = $gsm_standar;
-            $first_char = substr($gsm_standar, 0, 1);
-            if ($first_char === 'B' || $first_char === 'T') {
-                $prorate_gsm = 'K' . substr($gsm_standar, 1);
-            }
+//         $prorate_gsm = $gsm_standar;
+//         $first_char = substr($gsm_standar, 0, 1);
+//         if ($first_char === 'B' || $first_char === 'T') {
+//             $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//         }
 
-            $posisi = strtoupper($t->posisi_mesin); 
-            $sisa_awal = floatval($t->sisa_kilo_awal);
-            $sisa_akhir = floatval($t->sisa_kilo_akhir);
-            $terpakai = ($sisa_akhir <= 0) ? $sisa_awal : ($sisa_awal - $sisa_akhir);
+//         $posisi = strtoupper($t->posisi_mesin); 
+//         $sisa_awal = floatval($t->sisa_kilo_awal);
+//         $sisa_akhir = floatval($t->sisa_kilo_akhir);
+//         $terpakai = ($sisa_akhir <= 0) ? $sisa_awal : ($sisa_awal - $sisa_akhir);
 
-            $kunci = $lebar_db . '_' . $prorate_gsm . '_' . $posisi; 
-            if (!isset($forkliftGroup[$kunci])) { $forkliftGroup[$kunci] = 0; }
-            $forkliftGroup[$kunci] += $terpakai; 
-        }
+//         $kunci = $lebar_db . '_' . $prorate_gsm . '_' . $posisi; 
+//         if (!isset($forkliftGroup[$kunci])) { $forkliftGroup[$kunci] = 0; }
+//         $forkliftGroup[$kunci] += $terpakai; 
+//     }
 
-        // --- TAHAP 2: HITUNG ULANG METER REVISI (GABUNGKAN B & T KE KOLAM K) ---
-        $meterGroup = [];
-        foreach ($request->no_spk as $index => $no_spk) {
-            $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
-            $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
-            $meter = floatval($request->panjang_m[$index] ?? 0);
+//     // --- TAHAP 2: HITUNG ULANG METER REVISI (KLAIM GANDA JIKA ADA SLASH) ---
+//     $meterGroup = [];
+//     foreach ($request->no_spk as $index => $no_spk) {
+//         $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
+//         $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
+//         $meter = floatval($request->panjang_m[$index] ?? 0);
 
-            foreach ($posisiList as $pos => $inputName) {
-                $input_mentah = $request->input($inputName)[$index] ?? '';
-                if ($input_mentah === '' || $input_mentah === '-') continue;
+//         foreach ($posisiList as $pos => $inputName) {
+//             $input_mentah = $request->input($inputName)[$index] ?? '';
+//             if ($input_mentah === '' || $input_mentah === '-') continue;
 
-                $lebar_pakai_cm = $lebar_cm_global;
-                $input_gsm = $input_mentah;
+//             $input_gsm = $input_mentah;
+//             $target_lebar_array = [$lebar_cm_global]; // Default: klaim laci lebar utama
 
-                if (strpos($input_mentah, '/') !== false) {
-                    $parts = explode('/', $input_mentah);
-                    $input_gsm = $parts[0];
-                    $lebar_khusus = floatval($parts[1]);
-                    $lebar_pakai_cm = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                }
+//             // JIKA ADA SLASH: Jangan ditimpa, tambahkan lebar kedua ke array target
+//             if (strpos($input_mentah, '/') !== false) {
+//                 $parts = explode('/', $input_mentah);
+//                 $input_gsm = $parts[0];
+//                 $lebar_khusus = floatval($parts[1]);
+//                 $lebar_tambahan = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+                
+//                 if (!in_array($lebar_tambahan, $target_lebar_array)) {
+//                     $target_lebar_array[] = $lebar_tambahan;
+//                 }
+//             }
 
-                $gsm_standar = $this->terjemahkanKode($input_gsm);
-                if ($gsm_standar === '') continue;
+//             $gsm_standar = $this->terjemahkanKode($input_gsm);
+//             if ($gsm_standar === '') continue;
 
-                $prorate_gsm = $gsm_standar;
-                $first_char = substr($gsm_standar, 0, 1);
-                if ($first_char === 'B' || $first_char === 'T') {
-                    $prorate_gsm = 'K' . substr($gsm_standar, 1);
-                }
+//             $prorate_gsm = $gsm_standar;
+//             $first_char = substr($gsm_standar, 0, 1);
+//             if ($first_char === 'B' || $first_char === 'T') {
+//                 $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//             }
 
-                $kunci = $lebar_pakai_cm . '_' . $prorate_gsm . '_' . $pos;
-                if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
-                $meterGroup[$kunci] += $meter;
-            }
-        }
+//             // Daftarkan meter ke semua laci yang diklaim (bisa 1, bisa 2 laci)
+//             foreach ($target_lebar_array as $lbr) {
+//                 $kunci = $lbr . '_' . $prorate_gsm . '_' . $pos;
+//                 if (!isset($meterGroup[$kunci])) { $meterGroup[$kunci] = 0; }
+//                 $meterGroup[$kunci] += $meter;
+//             }
+//         }
+//     }
 
-        // --- TAHAP 3: RE-PRORATE ULANG ---
-        $data_json = [];
-        $grand_total_aktual = 0;
+//     // --- TAHAP 3: RE-PRORATE ULANG (TARIK DARI SEMUA LACI YANG DIKLAIM) ---
+//     $data_json = [];
+//     $grand_total_aktual = 0;
 
-        foreach ($request->no_spk as $index => $no_spk) {
-            $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
-            $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
-            $meter = floatval($request->panjang_m[$index] ?? 0);
+//     foreach ($request->no_spk as $index => $no_spk) {
+//         $lebar_mm = floatval($request->lebar_mm[$index] ?? 0);
+//         $lebar_cm_global = $lebar_mm > 500 ? ($lebar_mm / 10) : $lebar_mm;
+//         $meter = floatval($request->panjang_m[$index] ?? 0);
 
-            $jatah = ['DB' => 0, 'BM' => 0, 'BL' => 0, 'CM' => 0, 'CL' => 0];
-            $total_baris_aktual = 0;
+//         $jatah = ['DB' => 0, 'BM' => 0, 'BL' => 0, 'CM' => 0, 'CL' => 0];
+//         $total_baris_aktual = 0;
 
-            foreach ($posisiList as $pos => $inputName) {
-                $input_mentah = $request->input($inputName)[$index] ?? '';
-                if ($input_mentah === '' || $input_mentah === '-') continue;
+//         foreach ($posisiList as $pos => $inputName) {
+//             $input_mentah = $request->input($inputName)[$index] ?? '';
+//             if ($input_mentah === '' || $input_mentah === '-') continue;
 
-                $lebar_pakai_cm = $lebar_cm_global;
-                $input_gsm = $input_mentah;
+//             $input_gsm = $input_mentah;
+//             $target_lebar_array = [$lebar_cm_global];
 
-                if (strpos($input_mentah, '/') !== false) {
-                    $parts = explode('/', $input_mentah);
-                    $input_gsm = $parts[0];
-                    $lebar_khusus = floatval($parts[1]);
-                    $lebar_pakai_cm = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                }
+//             if (strpos($input_mentah, '/') !== false) {
+//                 $parts = explode('/', $input_mentah);
+//                 $input_gsm = $parts[0];
+//                 $lebar_khusus = floatval($parts[1]);
+//                 $lebar_tambahan = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+                
+//                 if (!in_array($lebar_tambahan, $target_lebar_array)) {
+//                     $target_lebar_array[] = $lebar_tambahan;
+//                 }
+//             }
 
-                $gsm_standar = $this->terjemahkanKode($input_gsm);
-                if ($gsm_standar === '') continue;
+//             $gsm_standar = $this->terjemahkanKode($input_gsm);
+//             if ($gsm_standar === '') continue;
 
-                $prorate_gsm = $gsm_standar;
-                $first_char = substr($gsm_standar, 0, 1);
-                if ($first_char === 'B' || $first_char === 'T') {
-                    $prorate_gsm = 'K' . substr($gsm_standar, 1);
-                }
+//             $prorate_gsm = $gsm_standar;
+//             $first_char = substr($gsm_standar, 0, 1);
+//             if ($first_char === 'B' || $first_char === 'T') {
+//                 $prorate_gsm = 'K' . substr($gsm_standar, 1);
+//             }
 
-                $kunci = $lebar_pakai_cm . '_' . $prorate_gsm . '_' . $pos;
-                $total_meter_spek = $meterGroup[$kunci] ?? 0;
-                $total_kg_forklift = $forkliftGroup[$kunci] ?? 0;
+//             $total_jatah_posisi_ini = 0;
 
-                $rasio = $total_meter_spek > 0 ? ($meter / $total_meter_spek) : 0;
-                $jatah[$pos] = $rasio * $total_kg_forklift;
-                $total_baris_aktual += $jatah[$pos];
-            }
+//             // Tarik rasio aktual dari semua laci dan jumlahkan
+//             foreach ($target_lebar_array as $lbr) {
+//                 $kunci = $lbr . '_' . $prorate_gsm . '_' . $pos;
+                
+//                 $total_meter_spek = $meterGroup[$kunci] ?? 0;
+//                 $total_kg_forklift = $forkliftGroup[$kunci] ?? 0;
 
-            $grand_total_aktual += $total_baris_aktual;
+//                 $rasio = $total_meter_spek > 0 ? ($meter / $total_meter_spek) : 0;
+//                 $total_jatah_posisi_ini += ($rasio * $total_kg_forklift);
+//             }
 
-            $data_json[] = [
-                'seq' => $request->seq[$index] ?? '',
-                'no_spk' => strtoupper($no_spk),
-                'lebar_cm' => $lebar_cm_global,
-                'panjang_m' => $meter,
-                'faktor_bm' => $request->faktor_bm[$index] ?? 1.36, 
-                'faktor_cm' => $request->faktor_cm[$index] ?? 1.46, 
-                'gsm_db' => strtoupper($request->gsm_db[$index] ?? ''), 
-                'gsm_bm' => strtoupper($request->gsm_bm[$index] ?? ''), 
-                'gsm_bl' => strtoupper($request->gsm_bl[$index] ?? ''), 
-                'gsm_cm' => strtoupper($request->gsm_cm[$index] ?? ''), 
-                'gsm_cl' => strtoupper($request->gsm_cl[$index] ?? ''), 
-                'akt_db' => $jatah['DB'], 'akt_bm' => $jatah['BM'], 'akt_bl' => $jatah['BL'], 'akt_cm' => $jatah['CM'], 'akt_cl' => $jatah['CL'],
-                'total_aktual' => $total_baris_aktual
-            ];
-        }
+//             $jatah[$pos] = $total_jatah_posisi_ini;
+//             $total_baris_aktual += $jatah[$pos];
+//         }
 
-        $kalkulasi->update([
-            'data_spk' => $data_json,
-            'total_aktual_semua' => $grand_total_aktual
-        ]);
+//         $grand_total_aktual += $total_baris_aktual;
 
-        return redirect('/hitung-spk/riwayat')->with('success', '🔄 Selesai! Data Re-Run Matching sukses dikalibrasi!');
-    }
+//         $data_json[] = [
+//             'seq' => $request->seq[$index] ?? '',
+//             'no_spk' => strtoupper($no_spk),
+//             'lebar_cm' => $lebar_cm_global, // Variabel global asli tetap utuh di sini
+//             'panjang_m' => $meter,
+//             'faktor_bm' => $request->faktor_bm[$index] ?? 1.36, 
+//             'faktor_cm' => $request->faktor_cm[$index] ?? 1.46, 
+//             'gsm_db' => strtoupper($request->gsm_db[$index] ?? ''), 
+//             'gsm_bm' => strtoupper($request->gsm_bm[$index] ?? ''), 
+//             'gsm_bl' => strtoupper($request->gsm_bl[$index] ?? ''), 
+//             'gsm_cm' => strtoupper($request->gsm_cm[$index] ?? ''), 
+//             'gsm_cl' => strtoupper($request->gsm_cl[$index] ?? ''), 
+//             'akt_db' => $jatah['DB'], 'akt_bm' => $jatah['BM'], 'akt_bl' => $jatah['BL'], 'akt_cm' => $jatah['CM'], 'akt_cl' => $jatah['CL'],
+//             'total_aktual' => $total_baris_aktual
+//         ];
+//     }
+
+//     $kalkulasi->update([
+//         'data_spk' => $data_json,
+//         'total_aktual_semua' => $grand_total_aktual
+//     ]);
+
+//     return redirect('/hitung-spk/riwayat')->with('success', '🔄 Selesai! Data Re-Run Matching sukses dikalibrasi!');
+// }
 
     // AI AUTO-FILL GROQ
     public function scanFotoAi(Request $request)

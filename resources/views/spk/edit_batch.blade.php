@@ -227,56 +227,62 @@
                             
                             @foreach(['db', 'bm', 'bl', 'cm', 'cl'] as $pos)
                                 <div class="col text-center">
-            @php
-                $input_mentah = $spk["gsm_$pos"] ?? '';
-                $lebar_spk = floatval($spk['lebar_cm']);
-                $is_tembak = false;
-                $lebar_tembak = 0;
-                
-                // Deteksi trik tembak ukuran (Garis miring)
-                if(strpos($input_mentah, '/') !== false) {
-                    $is_tembak = true;
-                    $parts = explode('/', $input_mentah);
-                    $input_mentah = $parts[0];
-                    $lebar_khusus = floatval($parts[1]);
-                    $lebar_spk = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
-                    $lebar_tembak = $lebar_spk;
-                }
-                
-                $gsm_standar = terjemahkanKodeBlade($input_mentah);
-                $matchedRolls = [];
-                
-                if($gsm_standar !== '') {
-                    // --- MERGE BUCKET LOGIC (SINKRON DENGAN CONTROLLER) ---
-                    // 1. Ubah target pencarian SPK: Jika B atau T, anggap mencari K
-                    $target_gsm = $gsm_standar;
-                    if (in_array(substr($target_gsm, 0, 1), ['B', 'T'])) {
-                        $target_gsm = 'K' . substr($target_gsm, 1);
-                    }
+                                @php
+                                    $input_mentah = $spk["gsm_$pos"] ?? '';
+                                    $lebar_utama = floatval($spk['lebar_cm']);
+                                    
+                                    // Gunakan Array agar bisa menampung 2 ukuran sekaligus!
+                                    $target_lebar_array = [$lebar_utama]; 
+                                    
+                                    $is_tembak = false;
+                                    $lebar_tembak = 0;
+                                    
+                                    // Deteksi trik tembak ukuran (Garis miring)
+                                    if(strpos($input_mentah, '/') !== false) {
+                                        $is_tembak = true;
+                                        $parts = explode('/', $input_mentah);
+                                        $input_mentah = $parts[0];
+                                        $lebar_khusus = floatval($parts[1]);
+                                        $lebar_tambahan = $lebar_khusus > 500 ? ($lebar_khusus / 10) : $lebar_khusus;
+                                        
+                                        $lebar_tembak = $lebar_tambahan;
+                                        
+                                        // JANGAN DITIMPA! Masukkan ukuran kedua ke dalam array
+                                        if (!in_array($lebar_tambahan, $target_lebar_array)) {
+                                            $target_lebar_array[] = $lebar_tambahan; 
+                                        }
+                                    }
+                                    
+                                    $gsm_standar = terjemahkanKodeBlade($input_mentah);
+                                    $matchedRolls = [];
+                                    
+                                    if($gsm_standar !== '') {
+                                        // --- MERGE BUCKET LOGIC ---
+                                        $target_gsm = $gsm_standar;
+                                        if (in_array(substr($target_gsm, 0, 1), ['B', 'T'])) {
+                                            $target_gsm = 'K' . substr($target_gsm, 1);
+                                        }
 
-                    // 2. Cari Jodoh di data Forklift (Yang sudah disorting 0 Kg maju duluan)
-                    foreach($transaksiRolls as $r) {
-                        $r_lebar = floatval($r->masterKertas->lebar ?? 0);
-                        $r_lebar = $r_lebar > 500 ? ($r_lebar / 10) : $r_lebar;
+                                        foreach($transaksiRolls as $r) {
+                                            $r_lebar = floatval($r->masterKertas->lebar ?? 0);
+                                            $r_lebar = $r_lebar > 500 ? ($r_lebar / 10) : $r_lebar;
 
-                        $r_gsm_asli = terjemahkanKodeBlade($r->masterKertas->gsm ?? '');
-                        $r_gsm_normalized = $r_gsm_asli;
+                                            $r_gsm_asli = terjemahkanKodeBlade($r->masterKertas->gsm ?? '');
+                                            $r_gsm_normalized = $r_gsm_asli;
 
-                        // Anggap roll B/T dari forklift sebagai K juga agar bisa digabung
-                        if (in_array(substr($r_gsm_normalized, 0, 1), ['B', 'T'])) {
-                            $r_gsm_normalized = 'K' . substr($r_gsm_normalized, 1);
-                        }
+                                            if (in_array(substr($r_gsm_normalized, 0, 1), ['B', 'T'])) {
+                                                $r_gsm_normalized = 'K' . substr($r_gsm_normalized, 1);
+                                            }
 
-                        $r_pos = strtoupper($r->posisi_mesin);
+                                            $r_pos = strtoupper($r->posisi_mesin);
 
-                        // Jika ukuran, posisi, dan rumpun kertas (K/B/T) cocok, masukkan antrean!
-                        if($r_lebar == $lebar_spk && $r_gsm_normalized == $target_gsm && $r_pos == strtoupper($pos)) {
-                            $matchedRolls[] = $r;
-                        }
-                    }
-                }
-            @endphp
-
+                                            // PERUBAHAN UTAMA: Gunakan in_array() untuk mengecek apakah lebar roll cocok dengan salah satu ukuran yang diizinkan
+                                            if(in_array($r_lebar, $target_lebar_array) && $r_gsm_normalized == $target_gsm && $r_pos == strtoupper($pos)) {
+                                                $matchedRolls[] = $r;
+                                            }
+                                        }
+                                    }
+                                @endphp
                                     @if($is_tembak)
                                         <div class="badge bg-danger mb-1 shadow-sm" style="font-size: 0.55rem;">⚠️ Slash: {{ $lebar_tembak }}cm</div>
                                     @endif
@@ -304,7 +310,14 @@
                                             @if($diambil > 0.01) 
                                                 <div class="border border-success rounded p-1 mb-1 bg-light text-center shadow-sm" style="font-size: 0.65rem; line-height: 1.2;">
                                                     <span class="fw-bold text-dark">{{ $r->no_roll ?? 'Tanpa Nama' }}</span><br>
-                                                    <span class="text-success fw-bold">{{ number_format($diambil, 2) }} Kg</span>
+                                                    <span class="text-success fw-bold">{{ number_format($diambil, 2) }} Kg</span><br>
+                                                    
+                                                    <!-- TAMBAHAN: INFO LEBAR ASLI ROLL -->
+                                                    @php
+                                                        $lbr_asli = floatval($r->masterKertas->lebar ?? 0);
+                                                        $lbr_cm = $lbr_asli > 500 ? ($lbr_asli / 10) : $lbr_asli;
+                                                    @endphp
+                                                    <span class="text-secondary fw-bold" style="font-size: 0.55rem;">(Lebar: {{ $lbr_cm }} cm)</span>
                                                 </div>
                                             @endif
                                         @endforeach
@@ -507,6 +520,7 @@
     }
 
     // --- LOGIKA BARU: Cek Selisih Total SPK & Selisih Per Posisi Roll ---
+    // --- LOGIKA BARU: Cek Selisih Total SPK & Selisih Per Posisi Roll (Dinamis Kuning/Merah) ---
     function cekWarningSelisih(card) {
         // 1. Validasi Skala Makro (Total SPK Card)
         let totalTeori = parseFloat(card.querySelector('.total-teori-card').value) || 0;
@@ -514,13 +528,24 @@
         let alertBlok = card.querySelector('.warning-selisih-val');
         
         if (alertBlok) {
-            if (totalTeori > 0 && totalAktual > 0) {
-                let selisihPersen = (Math.abs(totalAktual - totalTeori) / totalTeori) * 100;
-                if (selisihPersen > 15) {
+            if (totalTeori > 0) {
+                let selisihPersen = ((totalAktual - totalTeori) / totalTeori) * 100;
+                
+                if (Math.abs(selisihPersen) > 15) {
                     alertBlok.classList.remove('d-none');
-                    card.querySelector('.txt-persen-selisih').innerText = selisihPersen.toFixed(1);
-                    card.querySelector('.txt-teori-val').innerText = totalTeori.toFixed(2);
-                    card.querySelector('.txt-aktual-val').innerText = totalAktual.toFixed(2);
+                    let isKurang = selisihPersen < 0;
+                    let statusKata = isKurang ? "KURANG" : "LEBIH";
+                    
+                    // GANTI WARNA BACKGROUND KOTAK ALERT UTAMA
+                    if (isKurang) {
+                        alertBlok.classList.remove('alert-danger');
+                        alertBlok.classList.add('alert-warning'); // Berubah jadi kuning
+                    } else {
+                        alertBlok.classList.remove('alert-warning');
+                        alertBlok.classList.add('alert-danger'); // Berubah jadi merah
+                    }
+                    
+                    alertBlok.innerHTML = `<strong>⚠️ Peringatan Selisih Tinggi!</strong> Berat aktual <span class="text-decoration-underline fw-bold">${statusKata} ${Math.abs(selisihPersen).toFixed(1)}%</span> dari kalkulasi teori (Teori: <span class="txt-teori-val">${totalTeori.toFixed(2)}</span> Kg | Aktual: <span class="txt-aktual-val">${totalAktual.toFixed(2)}</span> Kg). Pastikan tidak ada salah ketik!`;
                 } else {
                     alertBlok.classList.add('d-none');
                 }
@@ -540,28 +565,55 @@
             if (warnEl) {
                 let isAnomaly = false;
                 let pesanWarning = "";
+                let isKurang = false; // Detektor khusus untuk warna kuning
 
-                if (tVal > 0 && aVal > 0) {
-                    let diff = (Math.abs(aVal - tVal) / tVal) * 100;
-                    if (diff > 15) { // Batas toleransi per item 15%
+                if (tVal > 0 || aVal > 0) {
+                    if (tVal > 0 && aVal === 0) {
                         isAnomaly = true;
-                        pesanWarning = `⚠️ Selisih ${diff.toFixed(0)}%`;
+                        pesanWarning = "⚠️ Belum Diisi / 0!";
+                    } else if (tVal === 0 && aVal > 0) {
+                        isAnomaly = true;
+                        pesanWarning = "⚠️ Salah Kolom!";
+                    } else {
+                        let diff = ((aVal - tVal) / tVal) * 100;
+                        if (Math.abs(diff) > 15) { // Batas toleransi 15%
+                            isAnomaly = true;
+                            if (diff < 0) {
+                                isKurang = true;
+                                pesanWarning = `⚠️ Kurang ${Math.abs(diff).toFixed(0)}%`;
+                            } else {
+                                pesanWarning = `⚠️ Lebih ${diff.toFixed(0)}%`;
+                            }
+                        }
                     }
-                } else if (tVal === 0 && aVal > 0) {
-                    // Proteksi Fatal: Di sistem teorinya 0 Kg (kertas tidak dipakai), tapi operator malah isi aktual beratnya!
-                    isAnomaly = true;
-                    pesanWarning = "⚠️ Salah Kolom!";
                 }
 
-                // Tampilkan efek error jika terdeteksi anomali data
+                // TAMPILKAN EFEK ERROR DENGAN WARNA DINAMIS
                 if (isAnomaly) {
                     warnEl.classList.remove('d-none');
                     warnEl.innerText = pesanWarning;
-                    inputEl.style.setProperty('border-color', '#dc3545', 'important'); // Kasih border merah menyala di inputnya
+                    
+                    if (isKurang) {
+                        // Setting Warna Kuning/Orange (Kurang)
+                        warnEl.classList.remove('text-danger');
+                        warnEl.classList.add('text-warning');
+                        warnEl.style.color = '#d39e00'; // Warna teks agak gelap sedikit agar tetap terbaca di layar putih
+                        inputEl.style.setProperty('border-color', '#ffc107', 'important'); // Border kuning
+                    } else {
+                        // Setting Warna Merah (Lebih / Error Fatal)
+                        warnEl.classList.remove('text-warning');
+                        warnEl.classList.add('text-danger');
+                        warnEl.style.color = ''; // Hapus override agar kembali ke default class merah
+                        inputEl.style.setProperty('border-color', '#dc3545', 'important'); // Border merah
+                    }
                 } else {
+                    // Reset ke mode normal jika tidak ada anomali
                     warnEl.classList.add('d-none');
                     warnEl.innerText = "";
-                    inputEl.style.setProperty('border-color', '#feb2b2', 'important'); // Kembalikan ke warna soft default
+                    warnEl.classList.remove('text-warning');
+                    warnEl.classList.add('text-danger'); // Kembalikan class ke default asli
+                    warnEl.style.color = ''; 
+                    inputEl.style.setProperty('border-color', '#feb2b2', 'important');
                 }
             }
         });
